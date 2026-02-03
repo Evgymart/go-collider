@@ -40,7 +40,7 @@ func main() {
 	handler := handlers.NewHandlers(eventStore)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/events", methodHandler(handler.GetAllEvents, "GET"))
+	mux.HandleFunc("/events", methodHandler(handler.GetEventsPaginated, "GET"))
 
 	loggedMux := loggingMiddleware(mux)
 	serverAddr := ":" + serverPort

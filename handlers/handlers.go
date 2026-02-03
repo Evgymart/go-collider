@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"collider/database"
+	"collider/models"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 )
 
 type Handlers struct {
@@ -27,12 +29,38 @@ func respondWithError(w http.ResponseWriter, statusCode int, err error) {
 	respondWithJson(w, statusCode, map[string]string{"error": err.Error()})
 }
 
-func (h *Handlers) GetAllEvents(w http.ResponseWriter, r *http.Request) {
-	events, err := h.store.GetAll()
+func (h *Handlers) GetEventsPaginated(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	page, err := strconv.Atoi(query.Get("page"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+
+	limit, err := strconv.Atoi(query.Get("limit"))
+	if err != nil || limit < 1 {
+		limit = 20
+	}
+
+	if limit > 100 {
+		limit = 100
+	}
+
+	events, err := h.store.GetPaginated(uint(page), uint(limit))
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, errors.New("error fetching events"))
+		respondWithError(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	respondWithJson(w, http.StatusOK, events)
+	total, err := h.store.GetTotal()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, errors.New("error fetching total"))
+		return
+	}
+
+	respondWithJson(w, http.StatusOK, &models.PaginatedEvents{
+		Data:  events,
+		Limit: uint(limit),
+		Page:  uint(page),
+		Total: uint(total),
+	})
 }

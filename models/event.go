@@ -15,3 +15,10 @@ type Event struct {
 	Metadata  json.RawMessage `json:"metadata" db:"metadata"`
 	Type      string          `json:"type" db:"type"`
 }
+
+type PaginatedEvents struct {
+	Data  []Event `json:"data"`
+	Page  uint    `json:"page"`
+	Limit uint    `json:"limit"`
+	Total uint    `json:"total"`
+}

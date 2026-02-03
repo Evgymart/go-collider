@@ -2,7 +2,9 @@ package database
 
 import (
 	"collider/models"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -45,4 +47,34 @@ func (s EventStore) GetTotal() (int, error) {
 	var count int
 	err := s.db.Get(&count, query)
 	return count, err
+}
+
+func (s EventStore) GetOrCreateEventType(name string) (uuid.UUID, error) {
+	query := `
+        insert into event_types (name)
+        values ($1)
+        on conflict (name)
+            do update set name = excluded.name
+        returning type_id;
+	`
+
+	var typeID uuid.UUID
+	err := s.db.Get(&typeID, query, name)
+	return typeID, err
+}
+
+func (s EventStore) CreateEvent(data models.CreateEventData) (*models.Event, error) {
+	var event models.Event
+	query := `
+		insert into events (user_id, type_id, timestamp, metadata) values ($1, $2, $3, $4)
+		returning event_id, user_id, type_id, timestamp, metadata;
+	`
+
+	now := time.Now()
+	err := s.db.QueryRowx(query, data.UserID, data.TypeID, now, data.Metadata).StructScan(&event)
+	if err != nil {
+		return nil, err
+	}
+
+	return &event, nil
 }

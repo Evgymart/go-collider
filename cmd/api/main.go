@@ -40,7 +40,16 @@ func main() {
 	handler := handlers.NewHandlers(eventStore)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/events", methodHandler(handler.GetEventsPaginated, "GET"))
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handler.GetEventsPaginated(w, r)
+		case http.MethodPost:
+			handler.CreateEvent(w, r)
+		default:
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		}
+	})
 
 	loggedMux := loggingMiddleware(mux)
 	serverAddr := ":" + serverPort

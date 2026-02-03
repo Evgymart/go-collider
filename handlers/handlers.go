@@ -64,3 +64,31 @@ func (h *Handlers) GetEventsPaginated(w http.ResponseWriter, r *http.Request) {
 		Total: uint(total),
 	})
 }
+
+func (h *Handlers) CreateEvent(w http.ResponseWriter, r *http.Request) {
+	var inputEvent models.CreateEventInput
+	if err := json.NewDecoder(r.Body).Decode(&inputEvent); err != nil {
+		respondWithError(w, http.StatusBadRequest, errors.New("invalid request body"))
+		return
+	}
+
+	eventTypeId, err := h.store.GetOrCreateEventType(inputEvent.Type)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, errors.New("error fetching event type"))
+		return
+	}
+
+	createdEvent, err := h.store.CreateEvent(models.CreateEventData{
+		UserID:   inputEvent.UserID,
+		TypeID:   eventTypeId,
+		Metadata: inputEvent.Metadata,
+	})
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	createdEvent.Type = inputEvent.Type
+	respondWithJson(w, http.StatusCreated, createdEvent)
+}

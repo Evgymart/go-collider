@@ -22,7 +22,7 @@ func (s EventStore) GetPaginated(page uint, limit uint) ([]models.Event, error) 
 
 	query := `
 		select
-			event_id as id,
+			event_id,
 			user_id,
 			type_id,
 			timestamp,

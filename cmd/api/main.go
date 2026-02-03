@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -51,6 +52,21 @@ func main() {
 		}
 	})
 
+	mux.HandleFunc("/users/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if !strings.HasPrefix(path, "/users/") || !strings.HasSuffix(path, "/events") {
+			http.NotFound(w, r)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			handler.GetUserEventsPaginated(w, r)
+		default:
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		}
+	})
+
 	loggedMux := loggingMiddleware(mux)
 	serverAddr := ":" + serverPort
 
@@ -65,14 +81,4 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		log.Printf("%s %s %s", r.Method, r.URL.Path, r.RemoteAddr)
 		next.ServeHTTP(w, r)
 	})
-}
-
-func methodHandler(handlerFunc http.HandlerFunc, allowedMethod string) http.HandlerFunc {
-
-	return func(w http.ResponseWriter, r *http.Request) {
-		if allowedMethod != "GET" {
-			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-		}
-		handlerFunc(w, r)
-	}
 }

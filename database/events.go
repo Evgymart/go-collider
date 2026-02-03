@@ -16,36 +16,48 @@ func NewEventStore(db *sqlx.DB) *EventStore {
 	return &EventStore{db: db}
 }
 
-func (s EventStore) GetPaginated(page uint, limit uint) ([]models.Event, error) {
+func (s EventStore) GetPaginated(page uint, limit uint, UserID *uuid.UUID) ([]models.Event, error) {
 	offset := (page - 1) * limit
 	var events []models.Event
 
 	query := `
-		select
-			event_id,
-			user_id,
-			type_id,
-			timestamp,
-			metadata,
-			name as type
-		from events
-		inner join event_types using (type_id)
-		order by event_id desc
-		limit $1
-		offset $2
-	`
+        select
+            event_id,
+            user_id,
+            type_id,
+            timestamp,
+            metadata,
+            name as type
+        from events
+        inner join event_types using (type_id)
+        where $1::uuid is null or user_id = $1
+        order by event_id desc
+        limit $2
+        offset $3
+    `
 
-	err := s.db.Select(&events, query, limit, offset)
+	var userIDArg interface{} = nil
+	if UserID != nil {
+		userIDArg = *UserID
+	}
+
+	err := s.db.Select(&events, query, userIDArg, limit, offset)
 	return events, err
 }
 
-func (s EventStore) GetTotal() (int, error) {
+func (s EventStore) GetTotal(UserID *uuid.UUID) (int, error) {
 	query := `
 		select count(*) from events
+		where $1::uuid is null or user_id = $1
 	`
 
+	var userIDArg interface{} = nil
+	if UserID != nil {
+		userIDArg = *UserID
+	}
+
 	var count int
-	err := s.db.Get(&count, query)
+	err := s.db.Get(&count, query, userIDArg)
 	return count, err
 }
 

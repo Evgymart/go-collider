@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"collider/models"
+	"errors"
 	"net/http"
 	"time"
 
@@ -42,7 +43,7 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	if eventType != "" {
 		eventTypeId, err = h.eventStore.GetEvetTypeId(eventType)
 		if err != nil {
-			http.Error(w, "No event by that id", http.StatusBadRequest)
+			respondWithError(w, http.StatusBadRequest, errors.New("no event by that id"))
 			return
 		}
 	}

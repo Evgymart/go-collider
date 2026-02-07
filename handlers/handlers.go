@@ -7,12 +7,14 @@ import (
 )
 
 type Handlers struct {
-	store *database.EventStore
+	eventStore *database.EventStore
+	statsStore *database.StatsStore
 }
 
-func NewHandlers(store *database.EventStore) *Handlers {
+func NewHandlers(e *database.EventStore, s *database.StatsStore) *Handlers {
 	return &Handlers{
-		store: store,
+		eventStore: e,
+		statsStore: s,
 	}
 }
 

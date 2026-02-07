@@ -27,13 +27,13 @@ func (h *Handlers) GetEventsPaginated(w http.ResponseWriter, r *http.Request) {
 		limit = 100
 	}
 
-	events, err := h.store.GetPaginated(uint(page), uint(limit), nil)
+	events, err := h.eventStore.GetPaginated(uint(page), uint(limit), nil)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	total, err := h.store.GetTotal(nil)
+	total, err := h.eventStore.GetTotal(nil)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, errors.New("error fetching total"))
 		return
@@ -77,13 +77,13 @@ func (h *Handlers) GetUserEventsPaginated(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	events, err := h.store.GetPaginated(uint(page), uint(limit), &userUUID)
+	events, err := h.eventStore.GetPaginated(uint(page), uint(limit), &userUUID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	total, err := h.store.GetTotal(&userUUID)
+	total, err := h.eventStore.GetTotal(&userUUID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, errors.New("error fetching total"))
 		return
@@ -104,13 +104,13 @@ func (h *Handlers) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventTypeId, err := h.store.GetOrCreateEventType(inputEvent.Type)
+	eventTypeId, err := h.eventStore.GetOrCreateEventType(inputEvent.Type)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, errors.New("error fetching event type"))
 		return
 	}
 
-	createdEvent, err := h.store.CreateEvent(models.CreateEventData{
+	createdEvent, err := h.eventStore.CreateEvent(models.CreateEventData{
 		UserID:   inputEvent.UserID,
 		TypeID:   eventTypeId,
 		Metadata: inputEvent.Metadata,

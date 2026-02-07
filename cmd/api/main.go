@@ -38,15 +38,17 @@ func main() {
 
 	log.Println("Successful db connection!")
 	eventStore := database.NewEventStore(db)
-	handler := handlers.NewHandlers(eventStore)
+	statsStore := database.NewStatsStore(db)
+
+	handlers := handlers.NewHandlers(eventStore, statsStore)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			handler.GetEventsPaginated(w, r)
+			handlers.GetEventsPaginated(w, r)
 		case http.MethodPost:
-			handler.CreateEvent(w, r)
+			handlers.CreateEvent(w, r)
 		default:
 			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		}
@@ -61,10 +63,19 @@ func main() {
 
 		switch r.Method {
 		case http.MethodGet:
-			handler.GetUserEventsPaginated(w, r)
+			handlers.GetUserEventsPaginated(w, r)
 		default:
 			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		}
+	})
+
+	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
+
+		handlers.GetStats(w, r)
 	})
 
 	loggedMux := loggingMiddleware(mux)

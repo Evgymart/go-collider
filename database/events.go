@@ -75,6 +75,15 @@ func (s EventStore) GetOrCreateEventType(name string) (uuid.UUID, error) {
 	return typeID, err
 }
 
+func (s EventStore) GetEvetTypeId(name string) (*uuid.UUID, error) {
+	query := `
+		select type_id from event_types where name = $1;
+	`
+	var typeID *uuid.UUID
+	err := s.db.Get(&typeID, query, name)
+	return typeID, err
+}
+
 func (s EventStore) CreateEvent(data models.CreateEventData) (*models.Event, error) {
 	var event models.Event
 	query := `

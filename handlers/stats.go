@@ -4,13 +4,17 @@ import (
 	"collider/models"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	fromStr := query.Get("from")
 	toStr := query.Get("to")
+	eventType := query.Get("type")
 	var fromTime, toTime time.Time
+	var eventTypeId *uuid.UUID
 	var err error
 
 	if fromStr != "" {
@@ -35,8 +39,16 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if eventType != "" {
+		eventTypeId, err = h.eventStore.GetEvetTypeId(eventType)
+		if err != nil {
+			http.Error(w, "No event by that id", http.StatusBadRequest)
+			return
+		}
+	}
+
 	stats, err := h.statsStore.GetStats(models.GetStatsData{
-		TypeID: nil,
+		TypeID: eventTypeId,
 		From:   &fromTime,
 		To:     &toTime,
 	})

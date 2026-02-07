@@ -27,6 +27,7 @@ func (s StatsStore) GetStats(data models.GetStatsData) (*models.Stats, error) {
             where metadata->>'page' is not null
                 and (timestamp >= $1 or $1::timestamp is null)
                 and (timestamp < $2 or $2::timestamp is null)
+				and (type_id = $3::uuid or $3::uuid is null)
             group by metadata->>'page'
         ),
         overall_stats as (
@@ -36,6 +37,7 @@ func (s StatsStore) GetStats(data models.GetStatsData) (*models.Stats, error) {
             from events
             where (timestamp >= $1 or $1::timestamp is null)
                 and (timestamp < $2 or $2::timestamp is null)
+            	and (type_id = $3::uuid or $3::uuid is null)
         ),
         top_pages as (
             select page, page_events
@@ -53,7 +55,7 @@ func (s StatsStore) GetStats(data models.GetStatsData) (*models.Stats, error) {
         from overall_stats;
     `
 
-	err := s.db.QueryRowx(query, data.From, data.To).StructScan(&stats)
+	err := s.db.QueryRowx(query, data.From, data.To, data.TypeID).StructScan(&stats)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stats: %w", err)
 	}

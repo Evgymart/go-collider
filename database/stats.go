@@ -25,8 +25,8 @@ func (s StatsStore) GetStats(data models.GetStatsData) (*models.Stats, error) {
                 count(distinct user_id) as page_users
             from events
             where metadata->>'page' is not null
-                and (timestamp >= $1 or $1::timestamp is null)
-                and (timestamp < $2 or $2::timestamp is null)
+                and (timestamp >= $1::timestamp or $1::timestamp is null)
+                and (timestamp < $2::timestamp or $2::timestamp is null)
 				and (type_id = $3::uuid or $3::uuid is null)
             group by metadata->>'page'
         ),
@@ -35,8 +35,8 @@ func (s StatsStore) GetStats(data models.GetStatsData) (*models.Stats, error) {
                 count(*) as total_events,
                 count(distinct user_id) as unique_users
             from events
-            where (timestamp >= $1 or $1::timestamp is null)
-                and (timestamp < $2 or $2::timestamp is null)
+            where (timestamp >= $1::timestamp or $1::timestamp is null)
+                and (timestamp < $2::timestamp or $2::timestamp is null)
             	and (type_id = $3::uuid or $3::uuid is null)
         ),
         top_pages as (

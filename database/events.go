@@ -61,20 +61,6 @@ func (s EventStore) GetTotal(UserID *uuid.UUID) (int, error) {
 	return count, err
 }
 
-func (s EventStore) GetOrCreateEventType(name string) (uuid.UUID, error) {
-	query := `
-        insert into event_types (name)
-        values ($1)
-        on conflict (name)
-            do update set name = excluded.name
-        returning type_id
-	`
-
-	var typeID uuid.UUID
-	err := s.db.Get(&typeID, query, name)
-	return typeID, err
-}
-
 func (s EventStore) GetEvetTypeId(name string) (*uuid.UUID, error) {
 	query := `
 		select type_id from event_types where name = $1
@@ -84,17 +70,39 @@ func (s EventStore) GetEvetTypeId(name string) (*uuid.UUID, error) {
 	return typeID, err
 }
 
-func (s EventStore) CreateEvent(data models.CreateEventData) (*models.Event, error) {
+func (s EventStore) CreateEventWithType(userID uuid.UUID, eventType string, metadata []byte) (*models.Event, error) {
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var typeID uuid.UUID
+	getTypeQuery := `
+		insert into event_types (name)
+		values ($1)
+		on conflict (name)
+			do update set name = excluded.name
+		returning type_id
+	`
+	err = tx.Get(&typeID, getTypeQuery, eventType)
+	if err != nil {
+		return nil, err
+	}
+
 	var event models.Event
-	query := `
+	createEventQuery := `
 		insert into events (user_id, type_id, timestamp, metadata)
 		values ($1, $2, $3, $4)
 		returning event_id, user_id, type_id, timestamp, metadata
 	`
-
 	now := time.Now()
-	err := s.db.QueryRowx(query, data.UserID, data.TypeID, now, data.Metadata).StructScan(&event)
+	err = tx.QueryRowx(createEventQuery, userID, typeID, now, metadata).StructScan(&event)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 

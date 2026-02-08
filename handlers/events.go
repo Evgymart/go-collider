@@ -105,17 +105,11 @@ func (h *Handlers) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventTypeId, err := h.eventStore.GetOrCreateEventType(inputEvent.Type)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, errors.New("error fetching event type"))
-		return
-	}
-
-	createdEvent, err := h.eventStore.CreateEvent(models.CreateEventData{
-		UserID:   inputEvent.UserID,
-		TypeID:   eventTypeId,
-		Metadata: inputEvent.Metadata,
-	})
+	createdEvent, err := h.eventStore.CreateEventWithType(
+		inputEvent.UserID,
+		inputEvent.Type,
+		inputEvent.Metadata,
+	)
 
 	if err != nil {
 		var pqErr *pq.Error

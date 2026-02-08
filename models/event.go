@@ -28,9 +28,3 @@ type CreateEventInput struct {
 	Type     string          `json:"event_type"`
 	Metadata json.RawMessage `json:"metadata"`
 }
-
-type CreateEventData struct {
-	UserID   uuid.UUID
-	TypeID   uuid.UUID
-	Metadata json.RawMessage
-}

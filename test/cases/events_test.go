@@ -104,9 +104,10 @@ func TestCreateEvent(t *testing.T) {
 	})
 
 	t.Run("returns 400 for non-existent user", func(t *testing.T) {
+		newEventType := "transaction.test.event"
 		requestBody := models.CreateEventInput{
 			UserID:   uuid.New(),
-			Type:     "user.login",
+			Type:     newEventType,
 			Metadata: json.RawMessage(`{"page": "/login"}`),
 		}
 		body, err := json.Marshal(requestBody)
@@ -123,6 +124,12 @@ func TestCreateEvent(t *testing.T) {
 		if status := rr.Code; status != http.StatusBadRequest {
 			t.Errorf("handler returned wrong status code: got %v want %v, body: %s",
 				status, http.StatusBadRequest, rr.Body.String())
+		}
+
+		var typeID *uuid.UUID
+		err = db.Get(&typeID, "select type_id from event_types where name = $1", newEventType)
+		if err == nil && typeID != nil {
+			t.Errorf("event type should not be created when event creation fails")
 		}
 	})
 

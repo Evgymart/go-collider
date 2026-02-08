@@ -19,6 +19,17 @@ services:
         reservations:
           cpus: '0.25'
           memory: 64M
+  test:
+    build:
+      context: .
+      dockerfile: docker/go/Dockerfile
+      target: builder
+    container_name: collider-test
+    volumes:
+      - ./:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /app
+    command: go test ./test/cases... -v
   db:
     image: postgres:${POSTGRES_VERSION:-18}-alpine
     container_name: collider-db

@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 func (h *Handlers) GetEventsPaginated(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +118,11 @@ func (h *Handlers) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23503" {
+			respondWithError(w, http.StatusBadRequest, errors.New("invalid user_id"))
+			return
+		}
 		respondWithError(w, http.StatusInternalServerError, err)
 		return
 	}

@@ -27,7 +27,7 @@ func (s StatsStore) GetStats(data models.GetStatsData) (*models.Stats, error) {
             where metadata->>'page' is not null
                 and (timestamp >= $1::timestamp or $1::timestamp is null)
                 and (timestamp < $2::timestamp or $2::timestamp is null)
-				and (type_id = $3::uuid or $3::uuid is null)
+                and (type_id = $3::uuid or $3::uuid is null)
             group by metadata->>'page'
         ),
         overall_stats as (
@@ -37,7 +37,7 @@ func (s StatsStore) GetStats(data models.GetStatsData) (*models.Stats, error) {
             from events
             where (timestamp >= $1::timestamp or $1::timestamp is null)
                 and (timestamp < $2::timestamp or $2::timestamp is null)
-            	and (type_id = $3::uuid or $3::uuid is null)
+                and (type_id = $3::uuid or $3::uuid is null)
         ),
         top_pages as (
             select page, page_events
@@ -49,10 +49,10 @@ func (s StatsStore) GetStats(data models.GetStatsData) (*models.Stats, error) {
             total_events,
             unique_users,
             coalesce(
-                (select json_object_agg(page, page_events) from top_pages), 
+                (select json_object_agg(page, page_events) from top_pages),
                 '{}'::json
             ) as top_pages
-        from overall_stats;
+        from overall_stats
     `
 
 	err := s.db.QueryRowx(query, data.From, data.To, data.TypeID).StructScan(&stats)

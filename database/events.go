@@ -67,7 +67,7 @@ func (s EventStore) GetOrCreateEventType(name string) (uuid.UUID, error) {
         values ($1)
         on conflict (name)
             do update set name = excluded.name
-        returning type_id;
+        returning type_id
 	`
 
 	var typeID uuid.UUID
@@ -77,7 +77,7 @@ func (s EventStore) GetOrCreateEventType(name string) (uuid.UUID, error) {
 
 func (s EventStore) GetEvetTypeId(name string) (*uuid.UUID, error) {
 	query := `
-		select type_id from event_types where name = $1;
+		select type_id from event_types where name = $1
 	`
 	var typeID *uuid.UUID
 	err := s.db.Get(&typeID, query, name)
@@ -87,8 +87,9 @@ func (s EventStore) GetEvetTypeId(name string) (*uuid.UUID, error) {
 func (s EventStore) CreateEvent(data models.CreateEventData) (*models.Event, error) {
 	var event models.Event
 	query := `
-		insert into events (user_id, type_id, timestamp, metadata) values ($1, $2, $3, $4)
-		returning event_id, user_id, type_id, timestamp, metadata;
+		insert into events (user_id, type_id, timestamp, metadata)
+		values ($1, $2, $3, $4)
+		returning event_id, user_id, type_id, timestamp, metadata
 	`
 
 	now := time.Now()

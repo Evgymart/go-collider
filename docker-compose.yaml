@@ -12,7 +12,6 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - SERVER_PORT=${SERVER_PORT}
-    user: "1000:1000"
     deploy:
       resources:
         limits:

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -139,12 +141,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	eventCount := int64(1000)
+	eventCount := int64(100000)
 	if len(os.Args) > 1 && os.Args[1] == "--prod" {
 		eventCount = 10000000
 	}
 
-	if err := seedEvents(db, eventCount); err != nil {
+	if err := seedEventsParallel(databaseUrl, eventCount); err != nil {
 		log.Fatal(err)
 	}
 
@@ -185,7 +187,6 @@ func seedEventTypes(db *sqlx.DB) error {
 
 func seedUsers(db *sqlx.DB) error {
 	fmt.Println("Seeding users...")
-	bar := progressbar.Default(int64(1000), "Seeding users")
 
 	query := `
 		insert into users (name)
@@ -201,17 +202,46 @@ func seedUsers(db *sqlx.DB) error {
 	}
 
 	rowsAffected, _ := result.RowsAffected()
-	bar.Finish()
 	fmt.Printf("Seeded %d users in %.2f seconds\n", rowsAffected, time.Since(start).Seconds())
 
 	return nil
 }
 
-func seedEvents(db *sqlx.DB, count int64) error {
-	fmt.Printf("Seeding %d events...\n", count)
+func seedEventsParallel(databaseUrl string, count int64) error {
+	fmt.Printf("Seeding %d events using parallel inserts...\n", count)
+
+	const batchSize int64 = 100000
+
+	numWorkers := 4
+	if w := os.Getenv("SEED_WORKERS"); w != "" {
+		fmt.Printf("Using %s workers (from SEED_WORKERS)\n", w)
+		fmt.Sscanf(w, "%d", &numWorkers)
+	} else {
+		fmt.Printf("Using %d worker (set SEED_WORKERS to override)\n", numWorkers)
+	}
+
+	batches := (count + batchSize - 1) / batchSize
+
 	bar := progressbar.Default(count, "Seeding events")
 
-	query := `
+	var inserted int64
+	start := time.Now()
+	lastUpdate := start
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, batches)
+
+	prepareQuery := `
+		set local synchronous_commit = off;
+		set local work_mem = '256MB';
+		set session_replication_role = 'replica';
+	`
+
+	cleanupQuery := `
+		set session_replication_role = 'origin';
+	`
+
+	insertQuery := `
 		with user_ids as (
 			select array_agg(user_id) as ids from users
 		),
@@ -224,13 +254,9 @@ func seedEvents(db *sqlx.DB, count int64) error {
 			type_ids.ids[1 + floor(random() * array_length(type_ids.ids, 1))::integer],
 			jsonb_build_object(
 				'page',
-				(array['/home', '/about', '/products', '/contact', '/login', '/checkout', '/profile', '/search'])[
-					floor(random() * 8)::int + 1
-				],
+				(array['/home', '/about', '/products', '/contact', '/login', '/checkout', '/profile', '/search'])[floor(random() * 8)::int + 1],
 				'referrer',
-				(array['https://google.com', 'https://twitter.com', 'https://facebook.com', 'direct', null])[
-					floor(random() * 5)::int + 1
-				],
+				(array['https://google.com', 'https://twitter.com', 'https://facebook.com', 'direct', null])[floor(random() * 5)::int + 1],
 				'session_id',
 				md5(random()::text)
 			),
@@ -238,15 +264,85 @@ func seedEvents(db *sqlx.DB, count int64) error {
 		from generate_series(1, $1), user_ids, type_ids
 	`
 
-	start := time.Now()
-	result, err := db.Exec(query, count)
-	if err != nil {
-		return err
+	sem := make(chan struct{}, numWorkers)
+
+	for i := int64(0); i < batches; i++ {
+		currentBatchSize := batchSize
+		if i == batches-1 && count%batchSize != 0 {
+			currentBatchSize = count % batchSize
+		}
+
+		wg.Add(1)
+
+		go func(batchNum int64, size int64) {
+			defer wg.Done()
+
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			db, err := database.Connect(databaseUrl)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			defer db.Close()
+
+			tx, err := db.Beginx()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			defer tx.Rollback()
+
+			tx.MustExec(prepareQuery)
+
+			result, err := tx.Exec(insertQuery, size)
+			if err != nil {
+				errCh <- err
+				return
+			}
+
+			if err := tx.Commit(); err != nil {
+				errCh <- err
+				return
+			}
+
+			tx, err = db.Beginx()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			tx.MustExec(cleanupQuery)
+			tx.Commit()
+
+			rows, _ := result.RowsAffected()
+			newInserted := atomic.AddInt64(&inserted, rows)
+			bar.Add(int(rows))
+
+			if time.Since(lastUpdate) > time.Second {
+				elapsed := time.Since(start).Seconds()
+				rate := float64(newInserted) / elapsed
+				remaining := float64(count-newInserted) / rate
+				fmt.Printf("\rProgress: %d/%d (%.1f%%) - Rate: %.0f/s - ETA: %.0fs",
+					newInserted, count, float64(newInserted)/float64(count)*100, rate, remaining)
+				lastUpdate = time.Now()
+			}
+		}(i, currentBatchSize)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	go func() {
+		wg.Wait()
+		close(errCh)
+	}()
+
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
+	}
+
 	bar.Finish()
-	fmt.Printf("Seeded %d events in %.2f seconds\n", rowsAffected, time.Since(start).Seconds())
+	fmt.Printf("\nSeeded %d events in %.2f seconds\n", inserted, time.Since(start).Seconds())
 
 	return nil
 }

@@ -6,10 +6,12 @@ services:
     container_name: collider-app
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+    env_file:
+      - .env
     environment:
-      - APP_ENV=production
-      - PORT=8080
+      - DATABASE_URL=${DATABASE_URL}
+      - SERVER_PORT=${SERVER_PORT}
     user: "1000:1000"
     deploy:
       resources:
@@ -29,21 +31,25 @@ services:
       - ./:/app
       - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /app
+    env_file:
+      - .env
     command: go test ./test/cases... -v
   db:
     image: postgres:${POSTGRES_VERSION:-18}-alpine
     container_name: collider-db
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: default
-      POSTGRES_PASSWORD: password
-      POSTGRES_USER: user
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql
       - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "${DEV_DB_PORT:-5432}:5432"
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U user -d default" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 5s
       timeout: 5s
       retries: 5

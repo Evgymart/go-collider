@@ -14,12 +14,12 @@ import (
 func main() {
 	databaseUrl := os.Getenv("DATABASE_URL")
 	if databaseUrl == "" {
-		databaseUrl = "postgres://user:password@db:5432/default?sslmode=disable"
+		log.Fatal("DATABASE_URL environment variable is required")
 	}
 
 	serverPort := os.Getenv("SERVER_PORT")
 	if serverPort == "" {
-		serverPort = "8080"
+		log.Fatal("SERVER_PORT environment variable is required")
 	}
 
 	log.Printf("Starting server on port %s", serverPort)

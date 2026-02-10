@@ -209,6 +209,109 @@ func TestCreateEvent(t *testing.T) {
 				response1.TypeID, response2.TypeID)
 		}
 	})
+
+	t.Run("returns 400 for empty event_type", func(t *testing.T) {
+		userID := utils.CreateTestUser(db)
+
+		requestBody := models.CreateEventInput{
+			UserID:   userID,
+			Type:     "",
+			Metadata: json.RawMessage(`{"page": "/login"}`),
+		}
+		body, err := json.Marshal(requestBody)
+		if err != nil {
+			t.Fatalf("failed to marshal request body: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/events", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+
+		h.CreateEvent(rr, req)
+
+		if status := rr.Code; status != http.StatusBadRequest {
+			t.Errorf("handler returned wrong status code: got %v want %v, body: %s",
+				status, http.StatusBadRequest, rr.Body.String())
+		}
+
+		var response map[string]string
+		if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+			t.Fatalf("failed to parse error response: %v", err)
+		}
+		expectedErrMsg := "event_type is required"
+		if response["error"] != expectedErrMsg {
+			t.Errorf("expected error message '%s', got '%s'", expectedErrMsg, response["error"])
+		}
+	})
+
+	t.Run("returns 400 for invalid UUID user_id", func(t *testing.T) {
+		requestBody := models.CreateEventInput{
+			UserID:   uuid.Nil,
+			Type:     "test.event",
+			Metadata: json.RawMessage(`{"page": "/test"}`),
+		}
+		body, err := json.Marshal(requestBody)
+		if err != nil {
+			t.Fatalf("failed to marshal request body: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/events", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+
+		h.CreateEvent(rr, req)
+
+		if status := rr.Code; status != http.StatusBadRequest {
+			t.Errorf("handler returned wrong status code: got %v want %v, body: %s",
+				status, http.StatusBadRequest, rr.Body.String())
+		}
+
+		var response map[string]string
+		if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+			t.Fatalf("failed to parse error response: %v", err)
+		}
+		expectedErrMsg := "invalid user id"
+		if response["error"] != expectedErrMsg {
+			t.Errorf("expected error message '%s', got '%s'", expectedErrMsg, response["error"])
+		}
+	})
+
+	t.Run("creates event with null metadata defaults to empty object", func(t *testing.T) {
+		userID := utils.CreateTestUser(db)
+
+		requestBody := models.CreateEventInput{
+			UserID: userID,
+			Type:   "test.metadata.null",
+		}
+		body, err := json.Marshal(requestBody)
+		if err != nil {
+			t.Fatalf("failed to marshal request body: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/events", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+
+		h.CreateEvent(rr, req)
+
+		if status := rr.Code; status != http.StatusCreated {
+			t.Errorf("handler returned wrong status code: got %v want %v, body: %s",
+				status, http.StatusCreated, rr.Body.String())
+		}
+
+		var response models.Event
+		if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		var metadata map[string]interface{}
+		if err := json.Unmarshal(response.Metadata, &metadata); err != nil {
+			t.Fatalf("failed to parse metadata: %v", err)
+		}
+		if len(metadata) != 0 {
+			t.Errorf("expected empty metadata object, got %v", metadata)
+		}
+	})
 }
 
 func TestGetEventsPaginated(t *testing.T) {
@@ -284,6 +387,31 @@ func TestGetEventsPaginated(t *testing.T) {
 		}
 		if response.Limit != 20 {
 			t.Errorf("expected limit 20, got %d", response.Limit)
+		}
+	})
+}
+
+func TestGetUserEventsPaginated(t *testing.T) {
+	_, h := setupHandlers(t)
+
+	t.Run("returns 400 for invalid UUID", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/users/not-a-uuid/events", nil)
+		rr := httptest.NewRecorder()
+
+		h.GetUserEventsPaginated(rr, req)
+
+		if status := rr.Code; status != http.StatusBadRequest {
+			t.Errorf("handler returned wrong status code: got %v want %v, body: %s",
+				status, http.StatusBadRequest, rr.Body.String())
+		}
+
+		var response map[string]string
+		if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+			t.Fatalf("failed to parse error response: %v", err)
+		}
+		expectedErrMsg := "invalid user id"
+		if response["error"] != expectedErrMsg {
+			t.Errorf("expected error message '%s', got '%s'", expectedErrMsg, response["error"])
 		}
 	})
 }

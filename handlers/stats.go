@@ -23,7 +23,7 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			parsedTime, err = time.Parse("2006-01-02T15:04:05Z", fromStr)
 			if err != nil {
-				http.Error(w, "Invalid from time format", http.StatusBadRequest)
+				respondWithError(w, http.StatusBadRequest, errors.New("invalid date format"))
 				return
 			}
 		}
@@ -35,7 +35,7 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			parsedTime, err = time.Parse("2006-01-02T15:04:05Z", toStr)
 			if err != nil {
-				http.Error(w, "Invalid to time format", http.StatusBadRequest)
+				respondWithError(w, http.StatusBadRequest, errors.New("invalid date format"))
 				return
 			}
 		}
@@ -45,7 +45,7 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	if eventType != "" {
 		eventTypeId, err = h.eventStore.GetEvetTypeId(eventType)
 		if err != nil {
-			respondWithError(w, http.StatusBadRequest, errors.New("no event by that id"))
+			respondWithError(w, http.StatusBadRequest, errors.New("event type not found"))
 			return
 		}
 	}

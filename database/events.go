@@ -71,6 +71,10 @@ func (s EventStore) GetEvetTypeId(name string) (*uuid.UUID, error) {
 }
 
 func (s EventStore) CreateEventWithType(userID uuid.UUID, eventType string, metadata []byte) (*models.Event, error) {
+	if len(metadata) == 0 {
+		metadata = []byte("{}")
+	}
+
 	tx, err := s.db.Beginx()
 	if err != nil {
 		return nil, err

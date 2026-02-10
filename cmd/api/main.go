@@ -3,6 +3,8 @@ package main
 import (
 	"collider/database"
 	"collider/handlers"
+	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -50,7 +52,7 @@ func main() {
 		case http.MethodPost:
 			handlers.CreateEvent(w, r)
 		default:
-			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			respondWithError(w, http.StatusMethodNotAllowed, errors.New("method not allowed"))
 		}
 	})
 
@@ -65,13 +67,13 @@ func main() {
 		case http.MethodGet:
 			handlers.GetUserEventsPaginated(w, r)
 		default:
-			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			respondWithError(w, http.StatusMethodNotAllowed, errors.New("method not allowed"))
 		}
 	})
 
 	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			respondWithError(w, http.StatusMethodNotAllowed, errors.New("method not allowed"))
 			return
 		}
 
@@ -92,4 +94,10 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		log.Printf("%s %s %s", r.Method, r.URL.Path, r.RemoteAddr)
 		next.ServeHTTP(w, r)
 	})
+}
+
+func respondWithError(w http.ResponseWriter, statusCode int, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }

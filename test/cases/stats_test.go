@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -176,6 +177,14 @@ func TestGetStats_InvalidFromTime(t *testing.T) {
 	if status := rr.Code; status != http.StatusBadRequest {
 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)
 	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to parse error response: %v", err)
+	}
+	if response["error"] == "" {
+		t.Error("expected error message in response")
+	}
 }
 
 func TestGetStats_InvalidToTime(t *testing.T) {
@@ -188,6 +197,14 @@ func TestGetStats_InvalidToTime(t *testing.T) {
 
 	if status := rr.Code; status != http.StatusBadRequest {
 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)
+	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to parse error response: %v", err)
+	}
+	if response["error"] == "" {
+		t.Error("expected error message in response")
 	}
 }
 
@@ -202,6 +219,15 @@ func TestGetStats_NonexistentEventType(t *testing.T) {
 	if status := rr.Code; status != http.StatusBadRequest {
 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)
 	}
+
+	var response map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to parse error response: %v", err)
+	}
+	expectedErrMsg := "event type not found"
+	if response["error"] != expectedErrMsg {
+		t.Errorf("expected error message '%s', got '%s'", expectedErrMsg, response["error"])
+	}
 }
 
 func TestGetStatsWithTimeRange_ValidRange(t *testing.T) {
@@ -214,7 +240,7 @@ func TestGetStatsWithTimeRange_ValidRange(t *testing.T) {
 	from := time.Now().Add(-24 * time.Hour).Format(time.RFC3339)
 	to := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
 
-	req := httptest.NewRequest(http.MethodGet, "/stats?from="+from+"&to="+to, nil)
+	req := httptest.NewRequest(http.MethodGet, "/stats?from="+url.QueryEscape(from)+"&to="+url.QueryEscape(to), nil)
 	rr := httptest.NewRecorder()
 
 	h.GetStats(rr, req)
@@ -242,7 +268,7 @@ func TestGetStatsWithTimeRange_OnlyFrom(t *testing.T) {
 
 	from := time.Now().Add(-24 * time.Hour).Format(time.RFC3339)
 
-	req := httptest.NewRequest(http.MethodGet, "/stats?from="+from, nil)
+	req := httptest.NewRequest(http.MethodGet, "/stats?from="+url.QueryEscape(from), nil)
 	rr := httptest.NewRecorder()
 
 	h.GetStats(rr, req)
@@ -271,7 +297,7 @@ func TestGetStatsWithTimeRange_FiltersOutsideRange(t *testing.T) {
 	from := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
 	to := time.Now().Add(48 * time.Hour).Format(time.RFC3339)
 
-	req := httptest.NewRequest(http.MethodGet, "/stats?from="+from+"&to="+to, nil)
+	req := httptest.NewRequest(http.MethodGet, "/stats?from="+url.QueryEscape(from)+"&to="+url.QueryEscape(to), nil)
 	rr := httptest.NewRecorder()
 
 	h.GetStats(rr, req)

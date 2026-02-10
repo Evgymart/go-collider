@@ -74,7 +74,7 @@ func (h *Handlers) GetUserEventsPaginated(w http.ResponseWriter, r *http.Request
 	userIDStr := matches[1]
 	userUUID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, errors.New("invalid user ID format"))
+		respondWithError(w, http.StatusBadRequest, errors.New("invalid user id"))
 		return
 	}
 
@@ -102,6 +102,16 @@ func (h *Handlers) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	var inputEvent models.CreateEventInput
 	if err := json.NewDecoder(r.Body).Decode(&inputEvent); err != nil {
 		respondWithError(w, http.StatusBadRequest, errors.New("invalid request body"))
+		return
+	}
+
+	if inputEvent.Type == "" {
+		respondWithError(w, http.StatusBadRequest, errors.New("event_type is required"))
+		return
+	}
+
+	if inputEvent.UserID == uuid.Nil {
+		respondWithError(w, http.StatusBadRequest, errors.New("invalid user id"))
 		return
 	}
 

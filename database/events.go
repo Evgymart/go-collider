@@ -61,7 +61,7 @@ func (s EventStore) GetTotal(UserID *uuid.UUID) (int, error) {
 	return count, err
 }
 
-func (s EventStore) GetEvetTypeId(name string) (*uuid.UUID, error) {
+func (s EventStore) GetEventTypeId(name string) (*uuid.UUID, error) {
 	query := `
 		select type_id from event_types where name = $1
 	`

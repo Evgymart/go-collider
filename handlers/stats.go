@@ -43,7 +43,7 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if eventType != "" {
-		eventTypeId, err = h.eventStore.GetEvetTypeId(eventType)
+		eventTypeId, err = h.eventStore.GetEventTypeId(eventType)
 		if err != nil {
 			respondWithError(w, http.StatusBadRequest, errors.New("event type not found"))
 			return

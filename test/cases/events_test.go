@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"collider/database"
-	"collider/handlers"
-	"collider/models"
+	"collider/internal/handlers"
+	"collider/internal/models"
+	"collider/internal/stores"
 	"collider/test/utils"
 
 	"github.com/google/uuid"
@@ -19,8 +19,8 @@ import (
 func setupHandlers(t *testing.T) (*sqlx.DB, *handlers.Handlers) {
 	t.Helper()
 	db := utils.SetupTestDB(t)
-	eventStore := database.NewEventStore(db)
-	statsStore := database.NewStatsStore(db)
+	eventStore := stores.NewEventStore(db)
+	statsStore := stores.NewStatsStore(db)
 	h := handlers.NewHandlers(eventStore, statsStore)
 	return db, h
 }

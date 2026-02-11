@@ -1,7 +1,8 @@
 package handlers
 
 import (
-	"collider/models"
+	"collider/internal/models"
+
 	"errors"
 	"net/http"
 	"time"

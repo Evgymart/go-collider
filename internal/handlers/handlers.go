@@ -1,17 +1,18 @@
 package handlers
 
 import (
-	"collider/database"
+	"collider/internal/stores"
+
 	"encoding/json"
 	"net/http"
 )
 
 type Handlers struct {
-	eventStore *database.EventStore
-	statsStore *database.StatsStore
+	eventStore *stores.EventStore
+	statsStore *stores.StatsStore
 }
 
-func NewHandlers(e *database.EventStore, s *database.StatsStore) *Handlers {
+func NewHandlers(e *stores.EventStore, s *stores.StatsStore) *Handlers {
 	return &Handlers{
 		eventStore: e,
 		statsStore: s,

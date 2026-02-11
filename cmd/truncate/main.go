@@ -1,7 +1,7 @@
 package main
 
 import (
-	"collider/database"
+	"collider/internal/stores"
 	"fmt"
 	"log"
 	"os"
@@ -18,7 +18,7 @@ func main() {
 		log.Fatal("DATABASE_URL environment variable is required")
 	}
 
-	db, err := database.Connect(databaseUrl)
+	db, err := stores.Connect(databaseUrl)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"collider/database"
+	"collider/internal/stores"
 	"fmt"
 	"log"
 	"os"
@@ -125,7 +125,7 @@ func main() {
 		log.Fatal("DATABASE_URL environment variable is required")
 	}
 
-	db, err := database.Connect(databaseUrl)
+	db, err := stores.Connect(databaseUrl)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func seedEventsParallel(databaseUrl string, count int64) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			db, err := database.Connect(databaseUrl)
+			db, err := stores.Connect(databaseUrl)
 			if err != nil {
 				errCh <- err
 				return

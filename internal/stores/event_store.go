@@ -1,7 +1,8 @@
-package database
+package stores
 
 import (
-	"collider/models"
+	"collider/internal/models"
+
 	"time"
 
 	"github.com/google/uuid"

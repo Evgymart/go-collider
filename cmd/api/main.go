@@ -1,32 +1,27 @@
 package main
 
 import (
-	"collider/database"
-	"collider/handlers"
-	"encoding/json"
-	"errors"
+	"collider/internal/config"
+	"collider/internal/handlers"
+	"collider/internal/middleware"
+	"collider/internal/router"
+	"collider/internal/stores"
+
 	"log"
 	"net/http"
-	"os"
-	"strings"
 
 	"github.com/jmoiron/sqlx"
 )
 
 func main() {
-	databaseUrl := os.Getenv("DATABASE_URL")
-	if databaseUrl == "" {
-		log.Fatal("DATABASE_URL environment variable is required")
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	serverPort := os.Getenv("SERVER_PORT")
-	if serverPort == "" {
-		log.Fatal("SERVER_PORT environment variable is required")
-	}
+	log.Printf("Starting server on port %s", cfg.ServerPort)
 
-	log.Printf("Starting server on port %s", serverPort)
-
-	db, err := database.Connect(databaseUrl)
+	db, err := stores.Connect(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -39,65 +34,17 @@ func main() {
 	}(db)
 
 	log.Println("Successful db connection!")
-	eventStore := database.NewEventStore(db)
-	statsStore := database.NewStatsStore(db)
+	eventStore := stores.NewEventStore(db)
+	statsStore := stores.NewStatsStore(db)
 
-	handlers := handlers.NewHandlers(eventStore, statsStore)
+	h := handlers.NewHandlers(eventStore, statsStore)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			handlers.GetEventsPaginated(w, r)
-		case http.MethodPost:
-			handlers.CreateEvent(w, r)
-		default:
-			respondWithError(w, http.StatusMethodNotAllowed, errors.New("method not allowed"))
-		}
-	})
-
-	mux.HandleFunc("/users/", func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if !strings.HasPrefix(path, "/users/") || !strings.HasSuffix(path, "/events") {
-			http.NotFound(w, r)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			handlers.GetUserEventsPaginated(w, r)
-		default:
-			respondWithError(w, http.StatusMethodNotAllowed, errors.New("method not allowed"))
-		}
-	})
-
-	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			respondWithError(w, http.StatusMethodNotAllowed, errors.New("method not allowed"))
-			return
-		}
-
-		handlers.GetStats(w, r)
-	})
-
-	loggedMux := loggingMiddleware(mux)
-	serverAddr := ":" + serverPort
+	mux := router.New(h)
+	loggedMux := middleware.Logging(mux)
+	serverAddr := ":" + cfg.ServerPort
 
 	err = http.ListenAndServe(serverAddr, loggedMux)
 	if err != nil {
 		log.Fatal(err)
 	}
-}
-
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s %s", r.Method, r.URL.Path, r.RemoteAddr)
-		next.ServeHTTP(w, r)
-	})
-}
-
-func respondWithError(w http.ResponseWriter, statusCode int, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }

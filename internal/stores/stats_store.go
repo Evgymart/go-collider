@@ -1,7 +1,8 @@
-package database
+package stores
 
 import (
-	"collider/models"
+	"collider/internal/models"
+
 	"fmt"
 
 	"github.com/jmoiron/sqlx"

@@ -29,7 +29,7 @@ Run `make help` to see all available commands.
 
 ```bash
 make bench                  # Run benchmark
-make bench NAME=naive       # Allow a name as param
+make bench NAME=naive       # Allows name as a param
 ```
 
 Results are saved to `benchmarks/benchmark_{name}_{datetime}.md`.

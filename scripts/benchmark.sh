@@ -31,9 +31,9 @@ BENCHMARK_DIR="$PROJECT_ROOT/benchmarks"
 # Output file with datetime
 DATETIME=$(date +"%Y%m%d_%H%M%S")
 if [ -n "$BENCH_NAME" ]; then
-    OUTPUT_FILE="$BENCHMARK_DIR/benchmark_${BENCH_NAME}_${DATETIME}.md"
+    OUTPUT_FILE="$BENCHMARK_DIR/${DATETIME}_benchmark_${BENCH_NAME}.md"
 else
-    OUTPUT_FILE="$BENCHMARK_DIR/benchmark_${DATETIME}.md"
+    OUTPUT_FILE="$BENCHMARK_DIR/${DATETIME}_benchmark_.md"
 fi
 
 # Create directories

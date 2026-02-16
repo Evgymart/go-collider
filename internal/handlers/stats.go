@@ -6,8 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
@@ -16,7 +14,7 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	toStr := query.Get("to")
 	eventType := query.Get("type")
 	var fromTime, toTime *time.Time
-	var eventTypeId *uuid.UUID
+	var eventTypeId *int64
 	var err error
 
 	if fromStr != "" {

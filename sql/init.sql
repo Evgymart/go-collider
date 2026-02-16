@@ -1,18 +1,18 @@
 create table users (
-    user_id uuid not null default gen_random_uuid() primary key,
+    user_id bigserial not null primary key,
     name varchar(50) not null,
     created_at timestamp(0) not null default (now() at time zone 'Europe/Moscow')
 );
 
 create table event_types (
-    type_id uuid not null default gen_random_uuid() primary key,
+    type_id bigserial not null primary key,
     name varchar(255) not null unique
 );
 
 create table events (
-    event_id uuid not null default gen_random_uuid() primary key,
-    user_id uuid not null,
-    type_id uuid not null,
+    event_id bigserial not null primary key,
+    user_id bigint not null,
+    type_id bigint not null,
     "timestamp" timestamp(0) not null default (now() at time zone 'Europe/Moscow'),
     metadata jsonb not null,
     constraint events_type_id_fkey foreign key (type_id)

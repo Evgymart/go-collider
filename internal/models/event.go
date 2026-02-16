@@ -3,14 +3,12 @@ package models
 import (
 	"encoding/json"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type Event struct {
-	ID        uuid.UUID       `json:"id" db:"event_id"`
-	UserID    uuid.UUID       `json:"user_id" db:"user_id"`
-	TypeID    uuid.UUID       `json:"type_id" db:"type_id"`
+	ID        int64           `json:"id" db:"event_id"`
+	UserID    int64           `json:"user_id" db:"user_id"`
+	TypeID    int64           `json:"type_id" db:"type_id"`
 	Timestamp time.Time       `json:"timestamp" db:"timestamp"`
 	Metadata  json.RawMessage `json:"metadata" db:"metadata"`
 	Type      string          `json:"type" db:"type"`
@@ -24,7 +22,7 @@ type PaginatedEvents struct {
 }
 
 type CreateEventInput struct {
-	UserID   uuid.UUID       `json:"user_id"`
+	UserID   int64           `json:"user_id"`
 	Type     string          `json:"event_type"`
 	Metadata json.RawMessage `json:"metadata"`
 }

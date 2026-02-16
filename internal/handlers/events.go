@@ -8,8 +8,8 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"strconv"
 
-	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
@@ -47,19 +47,24 @@ func (h *Handlers) GetUserEventsPaginated(w http.ResponseWriter, r *http.Request
 		return
 	}
 	userIDStr := matches[1]
-	userUUID, err := uuid.Parse(userIDStr)
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, errors.New("invalid user id"))
 		return
 	}
 
-	events, err := h.eventStore.GetPaginated(params.Page, params.Limit, &userUUID)
+	if userID <= 0 {
+		respondWithError(w, http.StatusBadRequest, errors.New("invalid user id"))
+		return
+	}
+
+	events, err := h.eventStore.GetPaginated(params.Page, params.Limit, &userID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	total, err := h.eventStore.GetTotal(&userUUID)
+	total, err := h.eventStore.GetTotal(&userID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, errors.New("error fetching total"))
 		return
@@ -85,7 +90,7 @@ func (h *Handlers) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if inputEvent.UserID == uuid.Nil {
+	if inputEvent.UserID <= 0 {
 		respondWithError(w, http.StatusBadRequest, errors.New("invalid user id"))
 		return
 	}

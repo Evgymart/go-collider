@@ -12,15 +12,7 @@ EVENT_TYPE="${3:-page_view}"
 THREADS=4
 CONNECTIONS=50
 DURATION="10s"
-
-# Fetch first user_id from API
-echo "Fetching user_id from API..."
-USER_ID=$(curl -s "$HOST/events?page=1&limit=1000" | jq -r '.data[0].user_id')
-if [ -z "$USER_ID" ] || [ "$USER_ID" = "null" ]; then
-    echo "ERROR: Could not fetch user_id from API"
-    exit 1
-fi
-echo "Using user_id: $USER_ID"
+USER_ID=1
 
 # Directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,10 +32,10 @@ fi
 mkdir -p "$RUNTIME_DIR"
 mkdir -p "$BENCHMARK_DIR"
 
-# Create JSON data for POST request (go-collider format)
+# Create JSON data for POST request
 cat > "$RUNTIME_DIR/event_data.json" << EOF
 {
-  "user_id": "$USER_ID",
+  "user_id": $USER_ID,
   "event_type": "$EVENT_TYPE",
   "metadata": {
     "page": "/dashboard",
@@ -84,7 +76,7 @@ echo "Benchmark Name: ${BENCH_NAME:-default}"
 echo "Threads: $THREADS"
 echo "Connections: $CONNECTIONS"
 echo "Duration: $DURATION"
-echo "User ID: $USER_ID (auto-detected)"
+echo "User ID: $USER_ID"
 echo "Event Type: $EVENT_TYPE"
 echo "Output: $OUTPUT_FILE"
 echo "=================================="
@@ -99,8 +91,6 @@ local file = io.open("runtime/wrk_scripts/event_data.json", "r")
 if file then
     wrk.body = file:read("*all")
     file:close()
-else
-    wrk.body = '{"user_id": "00000000-0000-0000-0000-000000000001", "event_type": "page_view"}'
 end
 
 function response(status, headers, body)
@@ -111,9 +101,9 @@ end
 EOF
 
 # Lua script for dynamic GET user events
-cat > "$RUNTIME_DIR/get_user_events.lua" << EOF
+cat > "$RUNTIME_DIR/get_user_events.lua" << 'EOF'
 -- GET request for user events
-local user_id = "$USER_ID"
+local user_id = "1"
 
 local params = {
     "?limit=10",

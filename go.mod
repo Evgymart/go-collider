@@ -3,7 +3,6 @@ module collider
 go 1.25
 
 require (
-	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.11.1
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
@@ -29,6 +28,7 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.8 // indirect
 	github.com/jackc/pgx/v5 v5.8.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect

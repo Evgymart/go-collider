@@ -5,7 +5,6 @@ import (
 
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -17,7 +16,7 @@ func NewEventStore(db *sqlx.DB) *EventStore {
 	return &EventStore{db: db}
 }
 
-func (s EventStore) GetPaginated(page uint, limit uint, UserID *uuid.UUID) ([]models.Event, error) {
+func (s EventStore) GetPaginated(page uint, limit uint, UserID *int64) ([]models.Event, error) {
 	offset := (page - 1) * limit
 	var events []models.Event
 
@@ -31,7 +30,7 @@ func (s EventStore) GetPaginated(page uint, limit uint, UserID *uuid.UUID) ([]mo
             name as type
         from events
         inner join event_types using (type_id)
-        where $1::uuid is null or user_id = $1
+        where $1::bigint is null or user_id = $1
         order by event_id desc
         limit $2
         offset $3
@@ -46,10 +45,10 @@ func (s EventStore) GetPaginated(page uint, limit uint, UserID *uuid.UUID) ([]mo
 	return events, err
 }
 
-func (s EventStore) GetTotal(UserID *uuid.UUID) (int, error) {
+func (s EventStore) GetTotal(UserID *int64) (int, error) {
 	query := `
 		select count(*) from events
-		where $1::uuid is null or user_id = $1
+		where $1::bigint is null or user_id = $1
 	`
 
 	var userIDArg interface{} = nil
@@ -62,16 +61,16 @@ func (s EventStore) GetTotal(UserID *uuid.UUID) (int, error) {
 	return count, err
 }
 
-func (s EventStore) GetEventTypeId(name string) (*uuid.UUID, error) {
+func (s EventStore) GetEventTypeId(name string) (*int64, error) {
 	query := `
 		select type_id from event_types where name = $1
 	`
-	var typeID *uuid.UUID
+	var typeID *int64
 	err := s.db.Get(&typeID, query, name)
 	return typeID, err
 }
 
-func (s EventStore) CreateEventWithType(userID uuid.UUID, eventType string, metadata []byte) (*models.Event, error) {
+func (s EventStore) CreateEventWithType(userID int64, eventType string, metadata []byte) (*models.Event, error) {
 	if len(metadata) == 0 {
 		metadata = []byte("{}")
 	}
@@ -82,7 +81,7 @@ func (s EventStore) CreateEventWithType(userID uuid.UUID, eventType string, meta
 	}
 	defer tx.Rollback()
 
-	var typeID uuid.UUID
+	var typeID int64
 	getTypeQuery := `
 		insert into event_types (name)
 		values ($1)

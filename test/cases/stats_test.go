@@ -14,7 +14,6 @@ import (
 	"collider/internal/stores"
 	"collider/test/utils"
 
-	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -27,7 +26,7 @@ func setupStatsHandlers(t *testing.T) (*sqlx.DB, *handlers.Handlers) {
 	return db, h
 }
 
-func createEvent(t *testing.T, h *handlers.Handlers, userID uuid.UUID, eventType string, page string) {
+func createEvent(t *testing.T, h *handlers.Handlers, userID int64, eventType string, page string) {
 	t.Helper()
 
 	requestBody := models.CreateEventInput{

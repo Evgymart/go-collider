@@ -3,14 +3,12 @@ package models
 import (
 	"encoding/json"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type GetStatsData struct {
 	From   *time.Time `db:"from"`
 	To     *time.Time `db:"to"`
-	TypeID *uuid.UUID `db:"type_id"`
+	TypeID *int64     `db:"type_id"`
 }
 
 type Stats struct {

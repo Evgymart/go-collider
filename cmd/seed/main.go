@@ -11,7 +11,6 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
-	"github.com/schollz/progressbar/v3"
 )
 
 var eventTypes = []string{
@@ -142,11 +141,13 @@ func main() {
 	}
 
 	eventCount := int64(100000)
+	isProd := false
 	if len(os.Args) > 1 && os.Args[1] == "--prod" {
 		eventCount = 10000000
+		isProd = true
 	}
 
-	if err := seedEventsParallel(databaseUrl, eventCount); err != nil {
+	if err := seedEventsParallel(databaseUrl, eventCount, isProd); err != nil {
 		log.Fatal(err)
 	}
 
@@ -155,8 +156,6 @@ func main() {
 
 func seedEventTypes(db *sqlx.DB) error {
 	fmt.Println("Seeding event types...")
-
-	bar := progressbar.Default(int64(len(eventTypes)), "Seeding event types")
 
 	tx, err := db.Beginx()
 	if err != nil {
@@ -174,14 +173,13 @@ func seedEventTypes(db *sqlx.DB) error {
 		if _, err := stmt.Exec(eventType); err != nil {
 			return err
 		}
-		bar.Add(1)
 	}
 
 	if err := tx.Commit(); err != nil {
 		return err
 	}
 
-	bar.Finish()
+	fmt.Printf("Seeded %d event types\n", len(eventTypes))
 	return nil
 }
 
@@ -207,39 +205,46 @@ func seedUsers(db *sqlx.DB) error {
 	return nil
 }
 
-func seedEventsParallel(databaseUrl string, count int64) error {
+func seedEventsParallel(databaseUrl string, count int64, isProd bool) error {
 	fmt.Printf("Seeding %d events using parallel inserts...\n", count)
 
-	const batchSize int64 = 100000
+	batchSize := int64(100000)
+	if bs := os.Getenv("SEED_BATCH_SIZE"); bs != "" {
+		fmt.Printf("Using batch size from SEED_BATCH_SIZE: %s\n", bs)
+		fmt.Sscanf(bs, "%d", &batchSize)
+	}
 
 	numWorkers := 4
 	if w := os.Getenv("SEED_WORKERS"); w != "" {
 		fmt.Printf("Using %s workers (from SEED_WORKERS)\n", w)
 		fmt.Sscanf(w, "%d", &numWorkers)
 	} else {
-		fmt.Printf("Using %d worker (set SEED_WORKERS to override)\n", numWorkers)
+		fmt.Printf("Using %d workers (set SEED_WORKERS to override)\n", numWorkers)
 	}
 
-	batches := (count + batchSize - 1) / batchSize
+	maxOpenConns := numWorkers * 2
+	if maxOpenConns < 20 {
+		maxOpenConns = 20
+	}
 
-	bar := progressbar.Default(count, "Seeding events")
+	skipIndexes := isProd
+
+	batches := (count + batchSize - 1) / batchSize
 
 	var inserted int64
 	start := time.Now()
 	lastUpdate := start
 
+	if skipIndexes {
+		fmt.Println("Dropping indexes before seeding...")
+		if err := dropIndexes(databaseUrl); err != nil {
+			return fmt.Errorf("failed to drop indexes: %w", err)
+		}
+		fmt.Println("Indexes dropped successfully")
+	}
+
 	var wg sync.WaitGroup
 	errCh := make(chan error, batches)
-
-	prepareQuery := `
-		set local synchronous_commit = off;
-		set local work_mem = '256MB';
-		set session_replication_role = 'replica';
-	`
-
-	cleanupQuery := `
-		set session_replication_role = 'origin';
-	`
 
 	insertQuery := `
 		with user_ids as (
@@ -280,7 +285,7 @@ func seedEventsParallel(databaseUrl string, count int64) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			db, err := stores.Connect(databaseUrl)
+			db, err := stores.ConnectWithPool(databaseUrl, maxOpenConns, maxOpenConns/2)
 			if err != nil {
 				errCh <- err
 				return
@@ -294,7 +299,15 @@ func seedEventsParallel(databaseUrl string, count int64) error {
 			}
 			defer tx.Rollback()
 
-			tx.MustExec(prepareQuery)
+			optimizations := []string{
+				"set local synchronous_commit = off",
+				"set local work_mem = '256MB'",
+				"set local maintenance_work_mem = '512MB'",
+			}
+
+			for _, opt := range optimizations {
+				tx.MustExec(opt)
+			}
 
 			result, err := tx.Exec(insertQuery, size)
 			if err != nil {
@@ -307,19 +320,10 @@ func seedEventsParallel(databaseUrl string, count int64) error {
 				return
 			}
 
-			tx, err = db.Beginx()
-			if err != nil {
-				errCh <- err
-				return
-			}
-			tx.MustExec(cleanupQuery)
-			tx.Commit()
-
 			rows, _ := result.RowsAffected()
 			newInserted := atomic.AddInt64(&inserted, rows)
-			bar.Add(int(rows))
 
-			if time.Since(lastUpdate) > time.Second {
+			if time.Since(lastUpdate) > 500*time.Millisecond {
 				elapsed := time.Since(start).Seconds()
 				rate := float64(newInserted) / elapsed
 				remaining := float64(count-newInserted) / rate
@@ -337,12 +341,103 @@ func seedEventsParallel(databaseUrl string, count int64) error {
 
 	for err := range errCh {
 		if err != nil {
+			if skipIndexes {
+				fmt.Println("\nAttempting to recreate indexes after error...")
+				recreateIndexes(databaseUrl)
+			}
 			return err
 		}
 	}
 
-	bar.Finish()
-	fmt.Printf("\nSeeded %d events in %.2f seconds\n", inserted, time.Since(start).Seconds())
+	elapsed := time.Since(start).Seconds()
+	rate := float64(inserted) / elapsed
+	fmt.Printf("\nSeeded %d events in %.2f seconds (%.0f events/sec)\n", inserted, elapsed, rate)
+
+	if skipIndexes {
+		fmt.Println("\nRecreating indexes...")
+		indexStart := time.Now()
+		if err := recreateIndexes(databaseUrl); err != nil {
+			return fmt.Errorf("failed to recreate indexes: %w", err)
+		}
+		fmt.Printf("Indexes recreated in %.2f seconds\n", time.Since(indexStart).Seconds())
+	}
+
+	return nil
+}
+
+func dropIndexes(databaseUrl string) error {
+	indexes := []string{
+		"idx_events_user_timestamp",
+		"idx_events_timestamp_desc",
+		"idx_events_type_timestamp",
+		"idx_events_stats",
+		"idx_events_covering",
+		"idx_events_metadata_gin",
+	}
+
+	db, err := stores.Connect(databaseUrl)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	for _, idx := range indexes {
+		query := fmt.Sprintf("drop index if exists %s", idx)
+		if _, err := db.Exec(query); err != nil {
+			fmt.Printf("Warning: failed to drop index %s: %v\n", idx, err)
+		}
+	}
+
+	return nil
+}
+
+func recreateIndexes(databaseUrl string) error {
+	indexes := []struct {
+		name string
+		sql  string
+	}{
+		{
+			"idx_events_user_timestamp",
+			"create index idx_events_user_timestamp on events (user_id, \"timestamp\" desc)",
+		},
+		{
+			"idx_events_timestamp_desc",
+			"create index idx_events_timestamp_desc on events (\"timestamp\" desc)",
+		},
+		{
+			"idx_events_type_timestamp",
+			"create index idx_events_type_timestamp on events (type_id, \"timestamp\" desc)",
+		},
+		{
+			"idx_events_stats",
+			"create index idx_events_stats on events (user_id, (metadata->>'page'), type_id)",
+		},
+		{
+			"idx_events_covering",
+			"create index idx_events_covering on events (user_id, type_id, \"timestamp\" desc) include (event_id, metadata)",
+		},
+		{
+			"idx_events_metadata_gin",
+			"create index idx_events_metadata_gin on events using gin (metadata)",
+		},
+	}
+
+	db, err := stores.Connect(databaseUrl)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	db.MustExec("set local maintenance_work_mem = '1GB'")
+
+	for _, idx := range indexes {
+		start := time.Now()
+		if _, err := db.Exec(idx.sql); err != nil {
+			fmt.Printf("Warning: failed to create index %s: %v\n", idx.name, err)
+		} else {
+			fmt.Printf("  Created %s in %.2fs\n", idx.name, time.Since(start).Seconds())
+		}
+	}
 
 	return nil
 }

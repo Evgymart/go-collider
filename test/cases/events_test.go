@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"collider/internal/handlers"
@@ -12,7 +13,6 @@ import (
 	"collider/internal/stores"
 	"collider/test/utils"
 
-	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -63,7 +63,7 @@ func TestCreateEvent(t *testing.T) {
 		if response.Type != "user.login" {
 			t.Errorf("expected type 'user.login', got '%s'", response.Type)
 		}
-		if response.ID == uuid.Nil {
+		if response.ID == 0 {
 			t.Error("expected non-empty event ID")
 		}
 
@@ -106,7 +106,7 @@ func TestCreateEvent(t *testing.T) {
 	t.Run("returns 400 for non-existent user", func(t *testing.T) {
 		newEventType := "transaction.test.event"
 		requestBody := models.CreateEventInput{
-			UserID:   uuid.New(),
+			UserID:   999999999,
 			Type:     newEventType,
 			Metadata: json.RawMessage(`{"page": "/login"}`),
 		}
@@ -126,7 +126,7 @@ func TestCreateEvent(t *testing.T) {
 				status, http.StatusBadRequest, rr.Body.String())
 		}
 
-		var typeID *uuid.UUID
+		var typeID *int64
 		err = db.Get(&typeID, "select type_id from event_types where name = $1", newEventType)
 		if err == nil && typeID != nil {
 			t.Errorf("event type should not be created when event creation fails")
@@ -244,9 +244,9 @@ func TestCreateEvent(t *testing.T) {
 		}
 	})
 
-	t.Run("returns 400 for invalid UUID user_id", func(t *testing.T) {
+	t.Run("returns 400 for invalid user_id", func(t *testing.T) {
 		requestBody := models.CreateEventInput{
-			UserID:   uuid.Nil,
+			UserID:   0,
 			Type:     "test.event",
 			Metadata: json.RawMessage(`{"page": "/test"}`),
 		}
@@ -348,7 +348,7 @@ func TestGetEventsPaginated(t *testing.T) {
 			requestBody := models.CreateEventInput{
 				UserID:   userID,
 				Type:     "test.event",
-				Metadata: json.RawMessage(`{"index": ` + string(rune('0'+i)) + `}`),
+				Metadata: json.RawMessage(`{"index": ` + strconv.Itoa(i) + `}`),
 			}
 			body, _ := json.Marshal(requestBody)
 			req := httptest.NewRequest(http.MethodPost, "/events", bytes.NewReader(body))
@@ -389,13 +389,49 @@ func TestGetEventsPaginated(t *testing.T) {
 			t.Errorf("expected limit 20, got %d", response.Limit)
 		}
 	})
+
+	t.Run("events have serial IDs", func(t *testing.T) {
+		userID := utils.CreateTestUser(db)
+
+		requestBody := models.CreateEventInput{
+			UserID:   userID,
+			Type:     "test.serial.id",
+			Metadata: json.RawMessage(`{"test": "data"}`),
+		}
+		body, _ := json.Marshal(requestBody)
+		req := httptest.NewRequest(http.MethodPost, "/events", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		h.CreateEvent(rr, req)
+
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("failed to create test event: %s", rr.Body.String())
+		}
+
+		var response models.Event
+		if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if response.ID <= 0 {
+			t.Errorf("expected positive serial ID, got %d", response.ID)
+		}
+
+		if response.UserID != userID {
+			t.Errorf("expected user_id %d, got %d", userID, response.UserID)
+		}
+
+		if response.TypeID <= 0 {
+			t.Errorf("expected positive type_id, got %d", response.TypeID)
+		}
+	})
 }
 
 func TestGetUserEventsPaginated(t *testing.T) {
-	_, h := setupHandlers(t)
+	db, h := setupHandlers(t)
 
-	t.Run("returns 400 for invalid UUID", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/users/not-a-uuid/events", nil)
+	t.Run("returns 400 for non-numeric user ID", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/users/not-an-int/events", nil)
 		rr := httptest.NewRecorder()
 
 		h.GetUserEventsPaginated(rr, req)
@@ -412,6 +448,89 @@ func TestGetUserEventsPaginated(t *testing.T) {
 		expectedErrMsg := "invalid user id"
 		if response["error"] != expectedErrMsg {
 			t.Errorf("expected error message '%s', got '%s'", expectedErrMsg, response["error"])
+		}
+	})
+
+	t.Run("returns 400 for negative user ID", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/users/-1/events", nil)
+		rr := httptest.NewRecorder()
+
+		h.GetUserEventsPaginated(rr, req)
+
+		if status := rr.Code; status != http.StatusBadRequest {
+			t.Errorf("handler returned wrong status code: got %v want %v, body: %s",
+				status, http.StatusBadRequest, rr.Body.String())
+		}
+
+		var response map[string]string
+		if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+			t.Fatalf("failed to parse error response: %v", err)
+		}
+		expectedErrMsg := "invalid user id"
+		if response["error"] != expectedErrMsg {
+			t.Errorf("expected error message '%s', got '%s'", expectedErrMsg, response["error"])
+		}
+	})
+
+	t.Run("returns 400 for zero user ID", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/users/0/events", nil)
+		rr := httptest.NewRecorder()
+
+		h.GetUserEventsPaginated(rr, req)
+
+		if status := rr.Code; status != http.StatusBadRequest {
+			t.Errorf("handler returned wrong status code: got %v want %v, body: %s",
+				status, http.StatusBadRequest, rr.Body.String())
+		}
+
+		var response map[string]string
+		if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+			t.Fatalf("failed to parse error response: %v", err)
+		}
+		expectedErrMsg := "invalid user id"
+		if response["error"] != expectedErrMsg {
+			t.Errorf("expected error message '%s', got '%s'", expectedErrMsg, response["error"])
+		}
+	})
+
+	t.Run("returns events for valid user ID", func(t *testing.T) {
+		userID := utils.CreateTestUser(db)
+
+		requestBody := models.CreateEventInput{
+			UserID:   userID,
+			Type:     "test.user.event",
+			Metadata: json.RawMessage(`{"page": "/test"}`),
+		}
+		body, _ := json.Marshal(requestBody)
+		req := httptest.NewRequest(http.MethodPost, "/events", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		h.CreateEvent(rr, req)
+
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("failed to create test event: %s", rr.Body.String())
+		}
+
+		req = httptest.NewRequest(http.MethodGet, "/users/"+strconv.FormatInt(userID, 10)+"/events", nil)
+		rr = httptest.NewRecorder()
+
+		h.GetUserEventsPaginated(rr, req)
+
+		if status := rr.Code; status != http.StatusOK {
+			t.Errorf("handler returned wrong status code: got %v want %v, body: %s",
+				status, http.StatusOK, rr.Body.String())
+		}
+
+		var response models.PaginatedEvents
+		if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if response.Total != 1 {
+			t.Errorf("expected total 1, got %d", response.Total)
+		}
+		if len(response.Data) != 1 {
+			t.Errorf("expected 1 event, got %d", len(response.Data))
 		}
 	})
 }

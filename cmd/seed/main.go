@@ -1,443 +1,390 @@
+// Package main provides a database seeding tool for the collider event tracking system.
+// It generates test data including users, event types, and events for performance testing.
 package main
 
 import (
-	"collider/internal/stores"
+	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
-	"os"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"collider/internal/config"
+	"collider/internal/stores"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
-var eventTypes = []string{
-	"user.registered",
-	"user.login",
-	"user.logout",
-	"user.updated",
-	"order.created",
-	"order.paid",
-	"order.shipped",
-	"order.delivered",
-	"payment.processed",
-	"payment.failed",
-	"payment.refunded",
-	"product.viewed",
-	"product.added_to_cart",
-	"product.removed_from_cart",
-	"email.sent",
-	"email.opened",
-	"email.clicked",
-	"notification.sent",
-	"notification.read",
-	"api.request",
-	"api.response",
-	"api.error",
-	"user.password_reset_requested",
-	"user.password_changed",
-	"user.two_factor_enabled",
-	"user.two_factor_disabled",
-	"user.deleted",
-	"user.suspended",
-	"user.reactivated",
-	"user.subscription_started",
-	"user.subscription_cancelled",
-	"user.subscription_renewed",
-	"user.invited",
-	"user.invite_accepted",
-	"user.feedback_submitted",
-	"user.avatar_uploaded",
-	"user.preferences_updated",
-	"user.email_verified",
-	"user.login_failed",
-	"user.profile_viewed",
-	"user.notification_preferences_updated",
-	"user.newsletter_subscribed",
-	"order.cancelled",
-	"order.return_requested",
-	"order.return_approved",
-	"order.return_rejected",
-	"order.review_submitted",
-	"order.invoice_generated",
-	"payment.pending",
-	"payment.disputed",
-	"payment.settled",
-	"cart.viewed",
-	"cart.updated",
-	"cart.cleared",
-	"checkout.started",
-	"checkout.completed",
-	"product.review_submitted",
-	"product.wishlisted",
-	"product.unwishlisted",
-	"product.compared",
-	"product.shared",
-	"product.restock_requested",
-	"product.stock_low",
-	"email.bounced",
-	"email.unsubscribed",
-	"notification.dismissed",
-	"notification.failed",
-	"session.started",
-	"session.expired",
-	"session.terminated",
-	"admin.login",
-	"admin.logout",
-	"admin.updated_user",
-	"admin.deleted_user",
-	"admin.generated_report",
-	"admin.settings_updated",
-	"file.uploaded",
-	"file.deleted",
-	"file.downloaded",
-	"file.previewed",
-	"support.ticket_created",
-	"support.ticket_closed",
-	"support.ticket_reopened",
-	"support.message_sent",
-	"support.rating_submitted",
-	"search.performed",
-	"search.filtered",
-	"search.sorted",
-	"settings.updated",
-	"language.changed",
-	"timezone.changed",
-	"api.token_generated",
-	"api.token_revoked",
-	"api.rate_limited",
-	"cron.job_started",
-	"cron.job_finished",
-	"cron.job_failed",
-	"webhook.received",
-	"webhook.verified",
-	"webhook.failed",
+const (
+	batchSize     = 25000
+	numUsers      = 1000
+	numEventTypes = 100
+	poolSize      = 1000
+)
+
+var eventTypes = map[string]struct {
+	id   int
+	page string
+}{
+	"usr_reg":     {1, "/reg"},
+	"usr_login":   {2, "/login"},
+	"usr_logout":  {3, "/logout"},
+	"usr_upd":     {4, "/profile"},
+	"ord_new":     {5, "/order"},
+	"ord_paid":    {6, "/pay"},
+	"ord_ship":    {7, "/ship"},
+	"ord_dlv":     {8, "/track"},
+	"pay_ok":      {9, "/pay/ok"},
+	"pay_fail":    {10, "/pay/fail"},
+	"pay_refund":  {11, "/refund"},
+	"prod_view":   {12, "/prod"},
+	"cart_add":    {13, "/cart/add"},
+	"cart_rm":     {14, "/cart/rm"},
+	"mail_sent":   {15, "/mail/sent"},
+	"mail_open":   {16, "/mail/open"},
+	"mail_click":  {17, "/mail/click"},
+	"ntf_sent":    {18, "/ntf/sent"},
+	"ntf_read":    {19, "/ntf/read"},
+	"api_req":     {20, "/api/req"},
+	"api_resp":    {21, "/api/resp"},
+	"api_err":     {22, "/api/err"},
+	"pwd_reset":   {23, "/pwd/reset"},
+	"pwd_chg":     {24, "/pwd/chg"},
+	"2fa_on":      {25, "/2fa/on"},
+	"2fa_off":     {26, "/2fa/off"},
+	"usr_del":     {27, "/usr/del"},
+	"usr_ban":     {28, "/usr/ban"},
+	"usr_act":     {29, "/usr/act"},
+	"sub_start":   {30, "/sub/start"},
+	"sub_end":     {31, "/sub/end"},
+	"sub_renew":   {32, "/sub/renew"},
+	"inv_send":    {33, "/inv/send"},
+	"inv_acc":     {34, "/inv/acc"},
+	"feedback":    {35, "/feedback"},
+	"avatar":      {36, "/avatar"},
+	"prefs":       {37, "/prefs"},
+	"mail_ver":    {38, "/verify"},
+	"login_fail":  {39, "/login/fail"},
+	"prof_view":   {40, "/prof/view"},
+	"ntf_prefs":   {41, "/ntf/prefs"},
+	"news_sub":    {42, "/news/sub"},
+	"ord_cancel":  {43, "/ord/cancel"},
+	"ret_req":     {44, "/ret/req"},
+	"ret_ok":      {45, "/ret/ok"},
+	"ret_no":      {46, "/ret/no"},
+	"review":      {47, "/review"},
+	"invoice":     {48, "/invoice"},
+	"pay_pend":    {49, "/pay/pend"},
+	"pay_disp":    {50, "/pay/disp"},
+	"pay_settle":  {51, "/pay/settle"},
+	"cart_view":   {52, "/cart"},
+	"cart_upd":    {53, "/cart/upd"},
+	"cart_clear":  {54, "/cart/clear"},
+	"chk_start":   {55, "/chk/start"},
+	"chk_done":    {56, "/chk/done"},
+	"prod_rev":    {57, "/prod/rev"},
+	"wish_add":    {58, "/wish/add"},
+	"wish_rm":     {59, "/wish/rm"},
+	"compare":     {60, "/compare"},
+	"share":       {61, "/share"},
+	"restock":     {62, "/restock"},
+	"stock_low":   {63, "/stock/low"},
+	"mail_bounce": {64, "/mail/bounce"},
+	"unsub":       {65, "/unsub"},
+	"ntf_dismiss": {66, "/ntf/dismiss"},
+	"ntf_fail":    {67, "/ntf/fail"},
+	"sess_start":  {68, "/sess/start"},
+	"sess_exp":    {69, "/sess/exp"},
+	"sess_end":    {70, "/sess/end"},
+	"adm_login":   {71, "/adm/login"},
+	"adm_logout":  {72, "/adm/logout"},
+	"adm_usr_upd": {73, "/adm/usr/upd"},
+	"adm_usr_del": {74, "/adm/usr/del"},
+	"adm_report":  {75, "/adm/report"},
+	"adm_cfg":     {76, "/adm/cfg"},
+	"file_up":     {77, "/file/up"},
+	"file_del":    {78, "/file/del"},
+	"file_dl":     {79, "/file/dl"},
+	"file_prev":   {80, "/file/prev"},
+	"sup_new":     {81, "/sup/new"},
+	"sup_close":   {82, "/sup/close"},
+	"sup_reopen":  {83, "/sup/reopen"},
+	"sup_msg":     {84, "/sup/msg"},
+	"sup_rate":    {85, "/sup/rate"},
+	"search":      {86, "/search"},
+	"filter":      {87, "/filter"},
+	"sort":        {88, "/sort"},
+	"cfg_upd":     {89, "/cfg"},
+	"lang":        {90, "/lang"},
+	"tz":          {91, "/tz"},
+	"token_gen":   {92, "/token/gen"},
+	"token_rev":   {93, "/token/rev"},
+	"rate_limit":  {94, "/rate"},
+	"cron_start":  {95, "/cron/start"},
+	"cron_done":   {96, "/cron/done"},
+	"cron_fail":   {97, "/cron/fail"},
+	"hook_in":     {98, "/hook/in"},
+	"hook_ok":     {99, "/hook/ok"},
+	"hook_fail":   {100, "/hook/fail"},
+}
+
+var indexes = []string{
+	"idx_events_user_timestamp",
+	"idx_events_timestamp_desc",
+	"idx_events_type_timestamp",
+	"idx_events_stats",
+	"idx_events_covering",
+	"idx_events_metadata_gin",
+}
+
+type seedPool struct {
+	templates []string
+}
+
+func newSeedPool() *seedPool {
+	sp := &seedPool{
+		templates: make([]string, poolSize),
+	}
+
+	typeNames := make([]string, 0, len(eventTypes))
+	for name := range eventTypes {
+		typeNames = append(typeNames, name)
+	}
+
+	startTs := time.Now().Add(-30 * 24 * time.Hour).Unix()
+	endTs := time.Now().Unix()
+	step := int64((endTs - startTs) / poolSize)
+
+	for i := 0; i < poolSize; i++ {
+		userID := (i % numUsers) + 1
+		typeIndex := i % len(typeNames)
+		typeName := typeNames[typeIndex]
+		eventType := eventTypes[typeName]
+
+		ts := startTs + int64(i)*step
+		timestamp := time.Unix(ts, 0).Format("2006-01-02 15:04:05")
+
+		metadata, err := json.Marshal(map[string]string{"page": eventType.page})
+		if err != nil {
+			log.Fatalf("Failed to marshal metadata: %v", err)
+		}
+
+		sp.templates[i] = fmt.Sprintf("(%d,%d,%s,%s)", userID, eventType.id, pq.QuoteLiteral(timestamp), pq.QuoteLiteral(string(metadata)))
+	}
+
+	return sp
 }
 
 func main() {
-	start := time.Now()
+	prodFlag := flag.Bool("prod", false, "Seed 10M events instead of 100k")
+	flag.Parse()
 
-	databaseUrl := os.Getenv("DATABASE_URL")
-	if databaseUrl == "" {
-		log.Fatal("DATABASE_URL environment variable is required")
+	var totalEvents int
+	if *prodFlag {
+		totalEvents = 10_000_000
+	} else {
+		totalEvents = 100_000
 	}
 
-	db, err := stores.Connect(databaseUrl)
+	fmt.Printf("Seeding %d events...\n", totalEvents)
+
+	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	db, err := stores.Connect(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
-	fmt.Println("Starting seed...")
+	db.SetMaxOpenConns(runtime.NumCPU() * 2)
+	db.SetMaxIdleConns(runtime.NumCPU())
 
-	if err := seedEventTypes(db); err != nil {
-		log.Fatal(err)
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
 	}
 
-	if err := seedUsers(db); err != nil {
-		log.Fatal(err)
-	}
+	startTime := time.Now()
 
-	eventCount := int64(100000)
-	isProd := false
-	if len(os.Args) > 1 && os.Args[1] == "--prod" {
-		eventCount = 10000000
-		isProd = true
-	}
+	prepareDB(db)
+	cleanDatabase(db)
+	seedUsers(db)
+	seedEventTypes(db)
+	seedEvents(db, totalEvents)
+	recreateIndexes(db)
 
-	if err := seedEventsParallel(databaseUrl, eventCount, isProd); err != nil {
-		log.Fatal(err)
-	}
+	elapsed := time.Since(startTime)
 
-	fmt.Printf("\nSeeded successfully in %.2f seconds\n", time.Since(start).Seconds())
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	var count int
+	db.Get(&count, "select count(*) from events")
+
+	fmt.Printf("\nDone.\n")
+	fmt.Printf("  Events: %d\n", count)
+	fmt.Printf("  Time: %.2fs\n", elapsed.Seconds())
+	fmt.Printf("  Memory: %s\n", formatBytes(m.Alloc))
+	fmt.Printf("  Workers: %d\n", runtime.NumCPU())
 }
 
-func seedEventTypes(db *sqlx.DB) error {
-	fmt.Println("Seeding event types...")
-
-	tx, err := db.Beginx()
-	if err != nil {
-		return err
+func prepareDB(db *sqlx.DB) {
+	for _, index := range indexes {
+		db.Exec(fmt.Sprintf("drop index if exists %s", pq.QuoteIdentifier(index)))
 	}
-	defer tx.Rollback()
-
-	stmt, err := tx.Preparex(`insert into event_types (name) values ($1) on conflict (name) do nothing`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, eventType := range eventTypes {
-		if _, err := stmt.Exec(eventType); err != nil {
-			return err
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-
-	fmt.Printf("Seeded %d event types\n", len(eventTypes))
-	return nil
 }
 
-func seedUsers(db *sqlx.DB) error {
-	fmt.Println("Seeding users...")
-
-	query := `
-		insert into users (name)
-		select 'user_' || md5(random()::text || clock_timestamp()::text)
-		from generate_series(1, 1000)
-		on conflict do nothing
-	`
-
-	start := time.Now()
-	result, err := db.Exec(query)
-	if err != nil {
-		return err
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	fmt.Printf("Seeded %d users in %.2f seconds\n", rowsAffected, time.Since(start).Seconds())
-
-	return nil
+func cleanDatabase(db *sqlx.DB) {
+	db.MustExec("truncate table events restart identity cascade")
+	db.MustExec("truncate table event_types restart identity cascade")
+	db.MustExec("truncate table users restart identity cascade")
 }
 
-func seedEventsParallel(databaseUrl string, count int64, isProd bool) error {
-	fmt.Printf("Seeding %d events using parallel inserts...\n", count)
+func seedUsers(db *sqlx.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	batchSize := int64(100000)
-	if bs := os.Getenv("SEED_BATCH_SIZE"); bs != "" {
-		fmt.Printf("Using batch size from SEED_BATCH_SIZE: %s\n", bs)
-		fmt.Sscanf(bs, "%d", &batchSize)
+	values := make([]string, numUsers)
+	for i := 1; i <= numUsers; i++ {
+		values[i-1] = fmt.Sprintf("(%d,%s)", i, pq.QuoteLiteral(fmt.Sprintf("user%d", i)))
 	}
 
-	numWorkers := 4
-	if w := os.Getenv("SEED_WORKERS"); w != "" {
-		fmt.Printf("Using %s workers (from SEED_WORKERS)\n", w)
-		fmt.Sscanf(w, "%d", &numWorkers)
-	} else {
-		fmt.Printf("Using %d workers (set SEED_WORKERS to override)\n", numWorkers)
+	query := fmt.Sprintf("insert into users (user_id, name) values %s", strings.Join(values, ","))
+	db.MustExecContext(ctx, query)
+
+	var maxID int64
+	db.GetContext(ctx, &maxID, "select max(user_id) from users")
+	db.MustExecContext(ctx, "select setval('users_user_id_seq', $1, true)", maxID)
+}
+
+func seedEventTypes(db *sqlx.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	values := make([]string, len(eventTypes))
+	i := 0
+	for name, et := range eventTypes {
+		values[i] = fmt.Sprintf("(%d,%s)", et.id, pq.QuoteLiteral(name))
+		i++
 	}
 
-	maxOpenConns := numWorkers * 2
-	if maxOpenConns < 20 {
-		maxOpenConns = 20
+	query := fmt.Sprintf("insert into event_types (type_id, name) values %s", strings.Join(values, ","))
+	db.MustExecContext(ctx, query)
+
+	var maxID int64
+	db.GetContext(ctx, &maxID, "select max(type_id) from event_types")
+	db.MustExecContext(ctx, "select setval('event_types_type_id_seq', $1, true)", maxID)
+}
+
+func seedEvents(db *sqlx.DB, totalEvents int) {
+	pool := newSeedPool()
+
+	numBatches := (totalEvents + batchSize - 1) / batchSize
+	maxWorkers := runtime.NumCPU()
+	printInterval := numBatches / 10
+	if printInterval < 1 {
+		printInterval = 1
 	}
 
-	skipIndexes := isProd
-
-	batches := (count + batchSize - 1) / batchSize
-
-	var inserted int64
-	start := time.Now()
-	lastUpdate := start
-
-	if skipIndexes {
-		fmt.Println("Dropping indexes before seeding...")
-		if err := dropIndexes(databaseUrl); err != nil {
-			return fmt.Errorf("failed to drop indexes: %w", err)
-		}
-		fmt.Println("Indexes dropped successfully")
-	}
-
+	sem := make(chan struct{}, maxWorkers)
 	var wg sync.WaitGroup
-	errCh := make(chan error, batches)
+	var eventID int64 = 1
+	var currentBatch int32 = 0
+	var mu sync.Mutex
 
-	insertQuery := `
-		with user_ids as (
-			select array_agg(user_id) as ids from users
-		),
-		type_ids as (
-			select array_agg(type_id) as ids from event_types
-		)
-		insert into events (user_id, type_id, metadata, timestamp)
-		select
-			user_ids.ids[1 + floor(random() * array_length(user_ids.ids, 1))::integer],
-			type_ids.ids[1 + floor(random() * array_length(type_ids.ids, 1))::integer],
-			jsonb_build_object(
-				'page',
-				(array['/home', '/about', '/products', '/contact', '/login', '/checkout', '/profile', '/search'])[floor(random() * 8)::int + 1],
-				'referrer',
-				(array['https://google.com', 'https://twitter.com', 'https://facebook.com', 'direct', null])[floor(random() * 5)::int + 1],
-				'session_id',
-				md5(random()::text)
-			),
-			(now() at time zone 'Europe/Moscow') - (random() * interval '365 days')
-		from generate_series(1, $1), user_ids, type_ids
-	`
+	errChan := make(chan error, numBatches)
 
-	sem := make(chan struct{}, numWorkers)
+	for batch := 0; batch < numBatches; batch++ {
+		wg.Add(1)
+		sem <- struct{}{}
 
-	for i := int64(0); i < batches; i++ {
-		currentBatchSize := batchSize
-		if i == batches-1 && count%batchSize != 0 {
-			currentBatchSize = count % batchSize
+		thisBatchSize := batchSize
+		if batch == numBatches-1 && totalEvents%batchSize != 0 {
+			thisBatchSize = totalEvents % batchSize
 		}
 
-		wg.Add(1)
+		go func(batchNum int, size int) {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
 
-		go func(batchNum int64, size int64) {
-			defer wg.Done()
-
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			db, err := stores.ConnectWithPool(databaseUrl, maxOpenConns, maxOpenConns/2)
-			if err != nil {
-				errCh <- err
+			if err := seedBatch(db, pool, batchNum, &eventID, size); err != nil {
+				errChan <- fmt.Errorf("batch %d: %w", batchNum, err)
 				return
 			}
-			defer db.Close()
-
-			tx, err := db.Beginx()
-			if err != nil {
-				errCh <- err
-				return
+			batchNumDone := atomic.AddInt32(&currentBatch, 1)
+			if batchNumDone%int32(printInterval) == 0 || int(batchNumDone) == numBatches {
+				mu.Lock()
+				fmt.Printf("  Progress: %d/%d batches\n", batchNumDone, numBatches)
+				mu.Unlock()
 			}
-			defer tx.Rollback()
-
-			optimizations := []string{
-				"set local synchronous_commit = off",
-				"set local work_mem = '256MB'",
-				"set local maintenance_work_mem = '512MB'",
-			}
-
-			for _, opt := range optimizations {
-				tx.MustExec(opt)
-			}
-
-			result, err := tx.Exec(insertQuery, size)
-			if err != nil {
-				errCh <- err
-				return
-			}
-
-			if err := tx.Commit(); err != nil {
-				errCh <- err
-				return
-			}
-
-			rows, _ := result.RowsAffected()
-			newInserted := atomic.AddInt64(&inserted, rows)
-
-			if time.Since(lastUpdate) > 500*time.Millisecond {
-				elapsed := time.Since(start).Seconds()
-				rate := float64(newInserted) / elapsed
-				remaining := float64(count-newInserted) / rate
-				fmt.Printf("\rProgress: %d/%d (%.1f%%) - Rate: %.0f/s - ETA: %.0fs",
-					newInserted, count, float64(newInserted)/float64(count)*100, rate, remaining)
-				lastUpdate = time.Now()
-			}
-		}(i, currentBatchSize)
+		}(batch, thisBatchSize)
 	}
 
 	go func() {
 		wg.Wait()
-		close(errCh)
+		close(errChan)
 	}()
 
-	for err := range errCh {
+	for err := range errChan {
 		if err != nil {
-			if skipIndexes {
-				fmt.Println("\nAttempting to recreate indexes after error...")
-				recreateIndexes(databaseUrl)
-			}
-			return err
+			log.Printf("Error seeding batch: %v", err)
 		}
 	}
+}
 
-	elapsed := time.Since(start).Seconds()
-	rate := float64(inserted) / elapsed
-	fmt.Printf("\nSeeded %d events in %.2f seconds (%.0f events/sec)\n", inserted, elapsed, rate)
+func seedBatch(db *sqlx.DB, pool *seedPool, batchNum int, eventID *int64, currentBatchSize int) error {
+	values := make([]string, currentBatchSize)
 
-	if skipIndexes {
-		fmt.Println("\nRecreating indexes...")
-		indexStart := time.Now()
-		if err := recreateIndexes(databaseUrl); err != nil {
-			return fmt.Errorf("failed to recreate indexes: %w", err)
-		}
-		fmt.Printf("Indexes recreated in %.2f seconds\n", time.Since(indexStart).Seconds())
+	for i := 0; i < currentBatchSize; i++ {
+		id := atomic.AddInt64(eventID, 1) - 1
+		index := int(id) % poolSize
+		template := pool.templates[index]
+		values[i] = fmt.Sprintf("(%d,%s", id, template[1:])
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	query := fmt.Sprintf("insert into events (event_id, user_id, type_id, timestamp, metadata) values %s", strings.Join(values, ","))
+
+	_, err := db.ExecContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to insert batch: %w", err)
 	}
 
 	return nil
 }
 
-func dropIndexes(databaseUrl string) error {
-	indexes := []string{
-		"idx_events_user_timestamp",
-		"idx_events_timestamp_desc",
-		"idx_events_type_timestamp",
-		"idx_events_stats",
-		"idx_events_covering",
-		"idx_events_metadata_gin",
-	}
+func recreateIndexes(db *sqlx.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
 
-	db, err := stores.Connect(databaseUrl)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	for _, idx := range indexes {
-		query := fmt.Sprintf("drop index if exists %s", idx)
-		if _, err := db.Exec(query); err != nil {
-			fmt.Printf("Warning: failed to drop index %s: %v\n", idx, err)
-		}
-	}
-
-	return nil
+	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events (user_id, timestamp desc)", pq.QuoteIdentifier("idx_events_user_timestamp")))
+	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events (timestamp desc)", pq.QuoteIdentifier("idx_events_timestamp_desc")))
+	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events (type_id, timestamp desc)", pq.QuoteIdentifier("idx_events_type_timestamp")))
+	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events (user_id, (metadata->>'page'), type_id)", pq.QuoteIdentifier("idx_events_stats")))
+	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events (user_id, type_id, timestamp desc) include (event_id, metadata)", pq.QuoteIdentifier("idx_events_covering")))
+	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events using gin (metadata)", pq.QuoteIdentifier("idx_events_metadata_gin")))
 }
 
-func recreateIndexes(databaseUrl string) error {
-	indexes := []struct {
-		name string
-		sql  string
-	}{
-		{
-			"idx_events_user_timestamp",
-			"create index idx_events_user_timestamp on events (user_id, \"timestamp\" desc)",
-		},
-		{
-			"idx_events_timestamp_desc",
-			"create index idx_events_timestamp_desc on events (\"timestamp\" desc)",
-		},
-		{
-			"idx_events_type_timestamp",
-			"create index idx_events_type_timestamp on events (type_id, \"timestamp\" desc)",
-		},
-		{
-			"idx_events_stats",
-			"create index idx_events_stats on events (user_id, (metadata->>'page'), type_id)",
-		},
-		{
-			"idx_events_covering",
-			"create index idx_events_covering on events (user_id, type_id, \"timestamp\" desc) include (event_id, metadata)",
-		},
-		{
-			"idx_events_metadata_gin",
-			"create index idx_events_metadata_gin on events using gin (metadata)",
-		},
+func formatBytes(b uint64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
 	}
-
-	db, err := stores.Connect(databaseUrl)
-	if err != nil {
-		return err
+	div, exp := uint64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
 	}
-	defer db.Close()
-
-	db.MustExec("set local maintenance_work_mem = '1GB'")
-
-	for _, idx := range indexes {
-		start := time.Now()
-		if _, err := db.Exec(idx.sql); err != nil {
-			fmt.Printf("Warning: failed to create index %s: %v\n", idx.name, err)
-		} else {
-			fmt.Printf("  Created %s in %.2fs\n", idx.name, time.Since(start).Seconds())
-		}
-	}
-
-	return nil
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }

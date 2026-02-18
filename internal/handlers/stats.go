@@ -1,9 +1,13 @@
 package handlers
 
 import (
+	"collider/internal/cache"
 	"collider/internal/models"
 
+	"context"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"time"
 )
@@ -44,7 +48,21 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	if eventType != "" {
 		eventTypeId, err = h.eventStore.GetEventTypeId(eventType)
 		if err != nil {
-			respondWithError(w, http.StatusBadRequest, errors.New("event type not found"))
+			respondWithError(w, http.StatusBadRequest, fmt.Errorf("event type '%s' not found: %w", eventType, err))
+			return
+		}
+	}
+
+	if h.cache != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 100*time.Millisecond)
+		defer cancel()
+
+		cacheKey := cache.StatsKey(fromTime, toTime, eventTypeId)
+		var cachedStats models.Stats
+
+		if h.cache.Get(ctx, cacheKey, &cachedStats) {
+			log.Printf("cache hit: %s", cacheKey)
+			respondWithJson(w, http.StatusOK, &cachedStats)
 			return
 		}
 	}
@@ -56,8 +74,14 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err)
+		respondWithError(w, http.StatusInternalServerError, fmt.Errorf("failed to get stats: %w", err))
 		return
+	}
+
+	if h.cache != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 100*time.Millisecond)
+		defer cancel()
+		h.cache.Set(ctx, cache.StatsKey(fromTime, toTime, eventTypeId), stats, cache.TTLStats)
 	}
 
 	respondWithJson(w, http.StatusOK, stats)

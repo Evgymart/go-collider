@@ -339,6 +339,9 @@ func seedEvents(db *sqlx.DB, totalEvents int) {
 			log.Printf("Error seeding batch: %v", err)
 		}
 	}
+
+	// Reset event_id sequence to continue from the highest seeded ID
+	db.MustExec("select setval('events_event_id_seq', $1, true)", totalEvents)
 }
 
 func seedBatch(db *sqlx.DB, pool *seedPool, batchNum int, eventID *int64, currentBatchSize int) error {

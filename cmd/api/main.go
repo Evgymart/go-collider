@@ -1,6 +1,7 @@
 package main
 
 import (
+	"collider/internal/cache"
 	"collider/internal/config"
 	"collider/internal/handlers"
 	"collider/internal/middleware"
@@ -29,7 +30,7 @@ func main() {
 	defer func(db *sqlx.DB) {
 		err := db.Close()
 		if err != nil {
-			log.Fatal(err)
+			log.Printf("error: failed to close database: %v", err)
 		}
 	}(db)
 
@@ -37,7 +38,15 @@ func main() {
 	eventStore := stores.NewEventStore(db)
 	statsStore := stores.NewStatsStore(db)
 
-	h := handlers.NewHandlers(eventStore, statsStore)
+	var c *cache.Cache
+	if cfg.CacheURL != "" {
+		c = cache.NewFromURL(cfg.CacheURL, cfg.CachePoolSize)
+		defer c.Close()
+	} else {
+		log.Println("cache: disabled (no CACHE_URL set)")
+	}
+
+	h := handlers.NewHandlers(eventStore, statsStore, c)
 
 	mux := router.New(h)
 	loggedMux := middleware.Logging(mux)

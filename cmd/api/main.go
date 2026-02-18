@@ -10,6 +10,8 @@ import (
 
 	"log"
 	"net/http"
+	"runtime"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -35,6 +37,16 @@ func main() {
 	}(db)
 
 	log.Println("Successful db connection!")
+
+	numCPU := runtime.NumCPU()
+	maxOpenConns := numCPU * 4
+	maxIdleConns := numCPU * 2
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(1 * time.Hour)
+	db.SetConnMaxIdleTime(15 * time.Minute)
+	log.Printf("Connection pool configured: maxOpen=%d, maxIdle=%d", maxOpenConns, maxIdleConns)
+
 	eventStore := stores.NewEventStore(db)
 	statsStore := stores.NewStatsStore(db)
 

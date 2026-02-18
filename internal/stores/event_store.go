@@ -3,13 +3,16 @@ package stores
 import (
 	"collider/internal/models"
 
-	"time"
+	"sync"
 
 	"github.com/jmoiron/sqlx"
 )
 
 type EventStore struct {
-	db *sqlx.DB
+	db              *sqlx.DB
+	typeCache       sync.Map
+	cacheWarmedUp   bool
+	cacheWarmupOnce sync.Once
 }
 
 func NewEventStore(db *sqlx.DB) *EventStore {
@@ -70,43 +73,81 @@ func (s EventStore) GetEventTypeId(name string) (*int64, error) {
 	return typeID, err
 }
 
-func (s EventStore) CreateEventWithType(userID int64, eventType string, metadata []byte) (*models.Event, error) {
+func (s *EventStore) warmTypeCache() error {
+	query := `
+		select name, type_id from event_types
+	`
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name string
+		var typeID int64
+		if err := rows.Scan(&name, &typeID); err != nil {
+			return err
+		}
+		s.typeCache.Store(name, typeID)
+	}
+	return rows.Err()
+}
+
+func (s *EventStore) getOrCreateTypeID(eventType string) (int64, error) {
+	if cached, ok := s.typeCache.Load(eventType); ok {
+		return cached.(int64), nil
+	}
+
+	query := `
+		with ins as (
+			insert into event_types (name)
+			values ($1)
+			on conflict (name) do nothing
+			returning type_id
+		)
+		select type_id from ins
+		union all
+		select type_id from event_types where name = $1
+		limit 1
+	`
+	var typeID int64
+	err := s.db.Get(&typeID, query, eventType)
+	if err != nil {
+		return 0, err
+	}
+
+	s.typeCache.Store(eventType, typeID)
+	return typeID, nil
+}
+
+func (s *EventStore) CreateEventWithType(userID int64, eventType string, metadata []byte) (*models.Event, error) {
 	if len(metadata) == 0 {
 		metadata = []byte("{}")
 	}
 
-	tx, err := s.db.Beginx()
-	if err != nil {
-		return nil, err
+	var warmupErr error
+	s.cacheWarmupOnce.Do(func() {
+		warmupErr = s.warmTypeCache()
+		s.cacheWarmedUp = true
+	})
+	if warmupErr != nil {
+		return nil, warmupErr
 	}
-	defer tx.Rollback()
 
-	var typeID int64
-	getTypeQuery := `
-		insert into event_types (name)
-		values ($1)
-		on conflict (name)
-			do update set name = excluded.name
-		returning type_id
-	`
-	err = tx.Get(&typeID, getTypeQuery, eventType)
+	typeID, err := s.getOrCreateTypeID(eventType)
 	if err != nil {
 		return nil, err
 	}
 
 	var event models.Event
-	createEventQuery := `
-		insert into events (user_id, type_id, timestamp, metadata)
-		values ($1, $2, $3, $4)
+	query := `
+		insert into events (user_id, type_id, metadata)
+		values ($1, $2, $3)
 		returning event_id, user_id, type_id, timestamp, metadata
 	`
-	now := time.Now()
-	err = tx.QueryRowx(createEventQuery, userID, typeID, now, metadata).StructScan(&event)
+	err = s.db.QueryRowx(query, userID, typeID, metadata).StructScan(&event)
 	if err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 

@@ -161,20 +161,11 @@ func (h *Handlers) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Invalidate cache entries after creating an event
-	// Fire-and-forget is acceptable here as cache invalidation is quick
-	// and eventual consistency is sufficient for this use case.
 	if h.cache != nil {
-		go func() {
-			ctx := context.Background()
-			h.cache.InvalidateUserEvents(ctx, inputEvent.UserID)
-			h.cache.InvalidateStats(ctx)
-		}()
+		ctx := context.Background()
+		h.cache.InvalidateUserEvents(ctx, inputEvent.UserID)
+		h.cache.InvalidateStats(ctx)
 	}
-
-	// Note: We don't invalidate global events cache on every event creation
-	// because the pagination would only shift for newly created events,
-	// and stale data for 5 minutes is acceptable for the use case.
 
 	createdEvent.Type = inputEvent.Type
 	respondWithJson(w, http.StatusCreated, createdEvent)

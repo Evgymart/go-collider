@@ -3,7 +3,7 @@
 **Date:** Mon Feb 16 10:51:50 PM MSK 2026
 **Configuration:**
 - Host: http://localhost:8080
-- Benchmark Name: better_indexes
+- Benchmark Name: no_uuid
 - Threads: 4
 - Connections: 50
 - Duration: 10s per test

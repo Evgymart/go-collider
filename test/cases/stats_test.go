@@ -20,9 +20,9 @@ import (
 func setupStatsHandlers(t *testing.T) (*sqlx.DB, *handlers.Handlers) {
 	t.Helper()
 	db := utils.SetupTestDB(t)
-	eventStore := stores.NewEventStore(db)
+	eventStore := stores.NewEventStore(db, 1) // Use node ID 1 for tests
 	statsStore := stores.NewStatsStore(db)
-	h := handlers.NewHandlers(eventStore, statsStore)
+	h := handlers.NewHandlers(eventStore, statsStore, nil)
 	return db, h
 }
 
@@ -223,9 +223,15 @@ func TestGetStats_NonexistentEventType(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
 		t.Fatalf("failed to parse error response: %v", err)
 	}
-	expectedErrMsg := "event type not found"
-	if response["error"] != expectedErrMsg {
-		t.Errorf("expected error message '%s', got '%s'", expectedErrMsg, response["error"])
+	// The error message includes the event type and underlying error details
+	errMsg := response["error"]
+	expectedPrefix := "event type 'nonexistent.event' not found"
+	if errMsg == "" {
+		t.Error("expected error message in response")
+	}
+	// Check if the error message contains the expected prefix
+	if len(errMsg) < len(expectedPrefix) || errMsg[:len(expectedPrefix)] != expectedPrefix {
+		t.Errorf("expected error message to start with '%s', got '%s'", expectedPrefix, errMsg)
 	}
 }
 

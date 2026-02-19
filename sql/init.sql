@@ -10,7 +10,7 @@ create table event_types (
 );
 
 create table events (
-    event_id bigserial not null primary key,
+    event_id bigint not null primary key,
     user_id bigint not null,
     type_id bigint not null,
     "timestamp" timestamp(0) not null default (now() at time zone 'Europe/Moscow'),

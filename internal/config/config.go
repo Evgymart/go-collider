@@ -7,11 +7,12 @@ import (
 )
 
 type Config struct {
-	DatabaseURL   string
-	ServerPort    string
-	AppEnv        string
-	CacheURL      string
-	CachePoolSize int
+	DatabaseURL     string
+	ServerPort      string
+	AppEnv          string
+	CacheURL        string
+	CachePoolSize   int
+	SnowflakeNodeID int64
 }
 
 func Load() (*Config, error) {
@@ -32,11 +33,19 @@ func Load() (*Config, error) {
 		}
 	}
 
+	snowflakeNodeID := int64(1)
+	if nodeIDStr := os.Getenv("SNOWFLAKE_NODE_ID"); nodeIDStr != "" {
+		if nodeID, err := strconv.ParseInt(nodeIDStr, 10, 64); err == nil && nodeID >= 0 && nodeID <= 1023 {
+			snowflakeNodeID = nodeID
+		}
+	}
+
 	return &Config{
-		DatabaseURL:   databaseURL,
-		ServerPort:    serverPort,
-		AppEnv:        os.Getenv("APP_ENV"),
-		CacheURL:      os.Getenv("CACHE_URL"),
-		CachePoolSize: cachePoolSize,
+		DatabaseURL:     databaseURL,
+		ServerPort:      serverPort,
+		AppEnv:          os.Getenv("APP_ENV"),
+		CacheURL:        os.Getenv("CACHE_URL"),
+		CachePoolSize:   cachePoolSize,
+		SnowflakeNodeID: snowflakeNodeID,
 	}, nil
 }

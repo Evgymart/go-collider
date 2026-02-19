@@ -4,6 +4,7 @@ import (
 	"collider/internal/cache"
 	"collider/internal/stores"
 
+	"encoding/json"
 	"net/http"
 )
 
@@ -24,6 +25,10 @@ func NewHandlers(e *stores.EventStore, s *stores.StatsStore, c *cache.Cache) *Ha
 func respondWithJson(w http.ResponseWriter, statusCode int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		// Log the error but we can't send another response since headers are already sent
+		// In practice, this typically means the client disconnected
+	}
 }
 
 func respondWithError(w http.ResponseWriter, statusCode int, err error) {

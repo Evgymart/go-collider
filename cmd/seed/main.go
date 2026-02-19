@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"collider/internal/config"
+	"collider/internal/snowflake"
 	"collider/internal/stores"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
@@ -242,7 +243,7 @@ func prepareDB(db *sqlx.DB) {
 }
 
 func cleanDatabase(db *sqlx.DB) {
-	db.MustExec("truncate table events restart identity cascade")
+	db.MustExec("truncate table events cascade")
 	db.MustExec("truncate table event_types restart identity cascade")
 	db.MustExec("truncate table users restart identity cascade")
 }
@@ -295,11 +296,19 @@ func seedEvents(db *sqlx.DB, totalEvents int) {
 
 	sem := make(chan struct{}, maxWorkers)
 	var wg sync.WaitGroup
-	var eventID int64 = 1
 	var currentBatch int32 = 0
 	var mu sync.Mutex
 
 	errChan := make(chan error, numBatches)
+
+	// Create snowflake generator for seeding
+	// Note: We pre-generate all snowflake IDs for each batch before insertion.
+	// This ensures that concurrent workers don't generate duplicate IDs and
+	// allows the snowflake generator to properly sequence IDs within each batch.
+	sf, err := snowflake.New(1)
+	if err != nil {
+		log.Fatalf("Failed to create snowflake generator: %v", err)
+	}
 
 	for batch := 0; batch < numBatches; batch++ {
 		wg.Add(1)
@@ -316,7 +325,7 @@ func seedEvents(db *sqlx.DB, totalEvents int) {
 				wg.Done()
 			}()
 
-			if err := seedBatch(db, pool, batchNum, &eventID, size); err != nil {
+			if err := seedBatch(db, pool, batchNum, sf, size); err != nil {
 				errChan <- fmt.Errorf("batch %d: %w", batchNum, err)
 				return
 			}
@@ -339,18 +348,24 @@ func seedEvents(db *sqlx.DB, totalEvents int) {
 			log.Printf("Error seeding batch: %v", err)
 		}
 	}
-
-	// Reset event_id sequence to continue from the highest seeded ID
-	db.MustExec("select setval('events_event_id_seq', $1, true)", totalEvents)
 }
 
-func seedBatch(db *sqlx.DB, pool *seedPool, batchNum int, eventID *int64, currentBatchSize int) error {
+func seedBatch(db *sqlx.DB, pool *seedPool, batchNum int, sf *snowflake.Snowflake, currentBatchSize int) error {
 	values := make([]string, currentBatchSize)
+	ids := make([]int64, currentBatchSize)
 
 	for i := 0; i < currentBatchSize; i++ {
-		id := atomic.AddInt64(eventID, 1) - 1
-		index := int(id) % poolSize
-		template := pool.templates[index]
+		id, err := sf.Generate()
+		if err != nil {
+			return fmt.Errorf("failed to generate snowflake ID: %w", err)
+		}
+		ids[i] = id
+	}
+
+	for i := 0; i < currentBatchSize; i++ {
+		id := ids[i]
+		index := batchNum*batchSize + i
+		template := pool.templates[index%poolSize]
 		values[i] = fmt.Sprintf("(%d,%s", id, template[1:])
 	}
 

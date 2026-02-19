@@ -2,7 +2,8 @@ package stores
 
 import (
 	"collider/internal/models"
-
+	"collider/internal/snowflake"
+	"log"
 	"sync"
 
 	"github.com/jmoiron/sqlx"
@@ -10,13 +11,22 @@ import (
 
 type EventStore struct {
 	db              *sqlx.DB
+	snowflake       *snowflake.Snowflake
 	typeCache       sync.Map
 	cacheWarmedUp   bool
 	cacheWarmupOnce sync.Once
 }
 
-func NewEventStore(db *sqlx.DB) *EventStore {
-	return &EventStore{db: db}
+func NewEventStore(db *sqlx.DB, nodeID int64) *EventStore {
+	sf, err := snowflake.New(nodeID)
+	if err != nil {
+		panic(err)
+	}
+
+	return &EventStore{
+		db:        db,
+		snowflake: sf,
+	}
 }
 
 func (s EventStore) GetPaginated(page uint, limit uint, UserID *int64) ([]models.Event, error) {
@@ -140,13 +150,19 @@ func (s *EventStore) CreateEventWithType(userID int64, eventType string, metadat
 		return nil, err
 	}
 
+	eventID, err := s.snowflake.Generate()
+	if err != nil {
+		log.Printf("error: failed to generate snowflake ID: %v", err)
+		return nil, err
+	}
+
 	var event models.Event
 	query := `
-		insert into events (user_id, type_id, metadata)
-		values ($1, $2, $3)
+		insert into events (event_id, user_id, type_id, metadata)
+		values ($1, $2, $3, $4)
 		returning event_id, user_id, type_id, timestamp, metadata
 	`
-	err = s.db.QueryRowx(query, userID, typeID, metadata).StructScan(&event)
+	err = s.db.QueryRowx(query, eventID, userID, typeID, metadata).StructScan(&event)
 	if err != nil {
 		return nil, err
 	}

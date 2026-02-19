@@ -46,8 +46,9 @@ func main() {
 	db.SetConnMaxLifetime(1 * time.Hour)
 	db.SetConnMaxIdleTime(15 * time.Minute)
 	log.Printf("Connection pool configured: maxOpen=%d, maxIdle=%d", maxOpenConns, maxIdleConns)
+	log.Printf("Snowflake node ID: %d", cfg.SnowflakeNodeID)
 
-	eventStore := stores.NewEventStore(db)
+	eventStore := stores.NewEventStore(db, cfg.SnowflakeNodeID)
 	statsStore := stores.NewStatsStore(db)
 
 	var c *cache.Cache

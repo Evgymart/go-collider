@@ -94,7 +94,7 @@ if file then
 end
 
 function response(status, headers, body)
-    if status ~= 200 and status ~= 201 then
+    if status ~= 200 and status ~= 201 and status ~= 202 then
         print("Error response: " .. status)
     end
 end

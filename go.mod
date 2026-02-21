@@ -7,6 +7,7 @@ require (
 	github.com/lib/pq v1.11.1
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
+	go.etcd.io/bbolt v1.4.3
 	golang.org/x/sync v0.19.0
 )
 

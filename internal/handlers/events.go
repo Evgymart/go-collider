@@ -3,6 +3,7 @@ package handlers
 import (
 	"collider/internal/cache"
 	"collider/internal/models"
+	"collider/internal/queue"
 	"collider/pkg/pagination"
 
 	"context"
@@ -35,7 +36,6 @@ func (h *Handlers) GetEventsPaginated(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fetch from database on cache miss
 	events, err := h.eventStore.GetPaginated(params.Page, params.Limit, nil)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, fmt.Errorf("failed to get paginated events: %w", err))
@@ -145,6 +145,103 @@ func (h *Handlers) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.eventQueue != nil {
+		h.createEventAsync(w, r, inputEvent)
+		return
+	}
+
+	h.createEventSync(w, r, inputEvent)
+}
+
+func (h *Handlers) createEventAsync(w http.ResponseWriter, r *http.Request, inputEvent models.CreateEventInput) {
+	eventID, err := h.eventStore.GenerateEventID()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, fmt.Errorf("failed to generate event ID: %w", err))
+		return
+	}
+
+	metadata := inputEvent.Metadata
+	if len(metadata) == 0 {
+		metadata = []byte("{}")
+	}
+
+	result := h.eventQueue.Enqueue(inputEvent.UserID, inputEvent.Type, metadata, eventID)
+
+	if result.Error != nil {
+		if errors.Is(result.Error, queue.ErrQueueFull) || errors.Is(result.Error, queue.ErrQueueChannelFull) {
+			log.Printf("queue: full, falling back to sync insert for event %d", eventID)
+			h.insertEventSyncAndRespond(w, inputEvent, eventID, metadata)
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, result.Error)
+		return
+	}
+
+	if h.cache != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 50*time.Millisecond)
+		defer cancel()
+		h.cache.InvalidateUserEvents(ctx, inputEvent.UserID)
+		h.cache.InvalidateStats(ctx)
+	}
+
+	typeID, err := h.eventStore.GetOrCreateTypeID(inputEvent.Type)
+	if err != nil {
+		typeID = 0
+	}
+
+	response := models.EventData{
+		Data: models.Event{
+			ID:        result.EventID,
+			UserID:    inputEvent.UserID,
+			TypeID:    typeID,
+			Type:      inputEvent.Type,
+			Metadata:  metadata,
+			Timestamp: result.QueuedAt,
+		},
+	}
+	respondWithJson(w, http.StatusAccepted, response)
+}
+
+func (h *Handlers) insertEventSyncAndRespond(w http.ResponseWriter, inputEvent models.CreateEventInput, eventID int64, metadata []byte) {
+	typeID, err := h.eventStore.GetOrCreateTypeID(inputEvent.Type)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, fmt.Errorf("failed to get type ID: %w", err))
+		return
+	}
+
+	event := models.Event{
+		ID:        eventID,
+		UserID:    inputEvent.UserID,
+		TypeID:    typeID,
+		Type:      inputEvent.Type,
+		Metadata:  metadata,
+		Timestamp: time.Now(),
+	}
+
+	if err := h.eventStore.InsertEventWithID(event); err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23503" {
+			respondWithError(w, http.StatusBadRequest, errors.New("invalid user_id"))
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	if h.cache != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		h.cache.InvalidateUserEvents(ctx, inputEvent.UserID)
+		h.cache.InvalidateStats(ctx)
+	}
+
+	response := models.EventData{
+		Data: event,
+	}
+	respondWithJson(w, http.StatusAccepted, response)
+}
+
+func (h *Handlers) createEventSync(w http.ResponseWriter, r *http.Request, inputEvent models.CreateEventInput) {
 	createdEvent, err := h.eventStore.CreateEventWithType(
 		inputEvent.UserID,
 		inputEvent.Type,

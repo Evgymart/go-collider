@@ -26,3 +26,7 @@ type CreateEventInput struct {
 	Type     string          `json:"event_type"`
 	Metadata json.RawMessage `json:"metadata"`
 }
+
+type EventData struct {
+	Data Event `json:"data"`
+}

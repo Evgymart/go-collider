@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"collider/internal/cache"
+	"collider/internal/queue"
 	"collider/internal/stores"
 
 	"encoding/json"
@@ -12,6 +13,7 @@ type Handlers struct {
 	eventStore *stores.EventStore
 	statsStore *stores.StatsStore
 	cache      *cache.Cache
+	eventQueue *queue.EventQueue
 }
 
 func NewHandlers(e *stores.EventStore, s *stores.StatsStore, c *cache.Cache) *Handlers {
@@ -19,7 +21,12 @@ func NewHandlers(e *stores.EventStore, s *stores.StatsStore, c *cache.Cache) *Ha
 		eventStore: e,
 		statsStore: s,
 		cache:      c,
+		eventQueue: nil, // Will be set after queue is created
 	}
+}
+
+func (h *Handlers) SetEventQueue(eq *queue.EventQueue) {
+	h.eventQueue = eq
 }
 
 func respondWithJson(w http.ResponseWriter, statusCode int, payload interface{}) {

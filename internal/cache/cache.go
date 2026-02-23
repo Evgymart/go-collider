@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"golang.org/x/sync/singleflight"
 )
 
 // TTL constants define cache expiration durations.
@@ -32,6 +31,10 @@ const (
 	// TTLEventTypeId is the cache duration for event type ID lookups.
 	// These rarely change, so a longer TTL is appropriate.
 	TTLEventTypeId = 30 * time.Minute
+
+	// TTLEventsTotal is the cache duration for the total events count.
+	// 15 minutes is appropriate since the count changes less frequently than individual events.
+	TTLEventsTotal = 15 * time.Minute
 )
 
 // keyPrefixes define namespace prefixes for different cache entry types.
@@ -55,9 +58,8 @@ type CacheStats struct {
 // All cache operations fall back gracefully on errors, allowing the application
 // to continue functioning by hitting the database directly.
 type Cache struct {
-	client  *redis.Client
-	sfGroup singleflight.Group
-	stats   CacheStats
+	client *redis.Client
+	stats  CacheStats
 }
 
 // New creates a new Cache instance with the given Redis client.
@@ -118,8 +120,9 @@ func (c *Cache) Close() error {
 	return c.client.Close()
 }
 
-// Get retrieves and deserializes a value into dest using single-flight pattern.
-// Only one goroutine will fetch from the cache while others wait for the result.
+// Get retrieves and deserializes a value into dest.
+// Redis GET operations are already atomic and fast, so we don't use singleflight here.
+// Singleflight would serialize all requests with the same cache key, creating a bottleneck.
 // Returns true if the value was found and successfully deserialized.
 // Returns false on cache miss, deserialization error, or connection failure.
 // On deserialization error, the corrupt key is deleted from the cache.
@@ -131,50 +134,38 @@ func (c *Cache) Get(ctx context.Context, key string, dest interface{}) bool {
 		return false
 	}
 
-	result, err, _ := c.sfGroup.Do(key, func() (interface{}, error) {
-		data, err := c.client.Get(ctx, key).Bytes()
-		if err != nil {
-			if err == redis.Nil {
-				c.stats.mu.Lock()
-				c.stats.misses++
-				c.stats.mu.Unlock()
-				// Return sentinel value to distinguish miss from hit
-				return struct{}{}, nil
-			}
-			c.stats.mu.Lock()
-			c.stats.errors++
-			c.stats.mu.Unlock()
-			log.Printf("cache: get error for key %s: %v", key, err)
-			return nil, err
-		}
-
-		if err := json.Unmarshal(data, dest); err != nil {
-			c.stats.mu.Lock()
-			c.stats.errors++
-			c.stats.mu.Unlock()
-			log.Printf("cache: unmarshal error for key %s: %v (deleting corrupt key)", key, err)
-			// Delete the corrupt key to prevent repeated failures
-			// Use background context since the request context may be timed out
-			if delErr := c.client.Del(context.Background(), key).Err(); delErr != nil {
-				log.Printf("cache: delete corrupt key error for %s: %v", key, delErr)
-			}
-			return nil, err
-		}
-
-		c.stats.mu.Lock()
-		c.stats.hits++
-		c.stats.mu.Unlock()
-		// Return true to indicate cache hit
-		return true, nil
-	})
-
+	data, err := c.client.Get(ctx, key).Bytes()
 	if err != nil {
+		if err == redis.Nil {
+			c.stats.mu.Lock()
+			c.stats.misses++
+			c.stats.mu.Unlock()
+			return false
+		}
+		c.stats.mu.Lock()
+		c.stats.errors++
+		c.stats.mu.Unlock()
+		log.Printf("cache: get error for key %s: %v", key, err)
 		return false
 	}
 
-	// Check if we got a cache hit (true) or miss (sentinel struct{})
-	hit, ok := result.(bool)
-	return ok && hit
+	if err := json.Unmarshal(data, dest); err != nil {
+		c.stats.mu.Lock()
+		c.stats.errors++
+		c.stats.mu.Unlock()
+		log.Printf("cache: unmarshal error for key %s: %v (deleting corrupt key)", key, err)
+		// Delete the corrupt key to prevent repeated failures
+		// Use background context since the request context may be timed out
+		if delErr := c.client.Del(context.Background(), key).Err(); delErr != nil {
+			log.Printf("cache: delete corrupt key error for %s: %v", key, delErr)
+		}
+		return false
+	}
+
+	c.stats.mu.Lock()
+	c.stats.hits++
+	c.stats.mu.Unlock()
+	return true
 }
 
 // Set serializes and stores a value with the specified TTL.
@@ -271,6 +262,12 @@ func (c *Cache) DeleteByPattern(_ context.Context, pattern string) {
 // Format: "events:page:{page}:limit:{limit}"
 func EventsKey(page, limit uint) string {
 	return fmt.Sprintf("%s:page:%d:limit:%d", keyPrefixEvents, page, limit)
+}
+
+// EventsTotalKey builds a cache key for the total events count.
+// Format: "events:total"
+func EventsTotalKey() string {
+	return keyPrefixEvents + ":total"
 }
 
 // UserEventsKey builds a cache key for user-specific paginated events lists.

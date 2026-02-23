@@ -39,7 +39,10 @@ func (s EventStore) GetPaginated(page uint, limit uint, UserID *int64) ([]models
 	offset := (page - 1) * limit
 	var events []models.Event
 
-	query := `
+	var query string
+	var args []interface{}
+
+	baseSelect := `
         select
             event_id,
             user_id,
@@ -49,34 +52,50 @@ func (s EventStore) GetPaginated(page uint, limit uint, UserID *int64) ([]models
             name as type
         from events
         inner join event_types using (type_id)
-        where $1::bigint is null or user_id = $1
-        order by event_id desc
-        limit $2
-        offset $3
     `
 
-	var userIDArg interface{} = nil
-	if UserID != nil {
-		userIDArg = *UserID
+	if UserID == nil {
+		query = baseSelect + `
+            order by event_id desc
+            limit $1
+            offset $2
+        `
+		args = []interface{}{limit, offset}
+	} else {
+		query = baseSelect + `
+            where user_id = $1
+            order by event_id desc
+            limit $2
+            offset $3
+        `
+		args = []interface{}{*UserID, limit, offset}
 	}
 
-	err := s.db.Select(&events, query, userIDArg, limit, offset)
+	err := s.db.Select(&events, query, args...)
 	return events, err
 }
 
+// GetTotal returns the total count of events.
+// For global counts (no user filter), we use PostgreSQL's estimated row count
+// from pg_class.reltuples which is much faster than COUNT(*) on large tables.
+// For user-specific counts, we still need an accurate count since we can't estimate per-user.
 func (s EventStore) GetTotal(UserID *int64) (int, error) {
-	query := `
-		select count(*) from events
-		where $1::bigint is null or user_id = $1
-	`
+	var query string
+	var args []interface{}
 
-	var userIDArg interface{} = nil
-	if UserID != nil {
-		userIDArg = *UserID
+	if UserID == nil {
+		// Use estimated row count from pg_class for global events count
+		// This is an estimate but avoids expensive full table scans on large tables
+		query = `select coalesce(reltuples::bigint, 0) from pg_class where relname = 'events'`
+		args = []interface{}{}
+	} else {
+		// For user-specific counts, we need an accurate count since we can't estimate per-user
+		query = `select count(*) from events where user_id = $1`
+		args = []interface{}{*UserID}
 	}
 
 	var count int
-	err := s.db.Get(&count, query, userIDArg)
+	err := s.db.Get(&count, query, args...)
 	return count, err
 }
 

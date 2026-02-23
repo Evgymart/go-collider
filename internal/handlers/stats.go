@@ -79,9 +79,7 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.cache != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 100*time.Millisecond)
-		defer cancel()
-		h.cache.Set(ctx, cache.StatsKey(fromTime, toTime, eventTypeId), stats, cache.TTLStats)
+		h.cache.Set(context.Background(), cache.StatsKey(fromTime, toTime, eventTypeId), stats, cache.TTLStats)
 	}
 
 	respondWithJson(w, http.StatusOK, stats)

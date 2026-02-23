@@ -42,10 +42,26 @@ func (h *Handlers) GetEventsPaginated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	total, err := h.eventStore.GetTotal(nil)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, fmt.Errorf("failed to get total events: %w", err))
-		return
+	var total int
+	if h.cache != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 50*time.Millisecond)
+		defer cancel()
+
+		totalKey := cache.EventsTotalKey()
+		if !h.cache.Get(ctx, totalKey, &total) {
+			total, err = h.eventStore.GetTotal(nil)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, fmt.Errorf("failed to get total events: %w", err))
+				return
+			}
+			h.cache.Set(context.Background(), totalKey, total, cache.TTLEventsTotal)
+		}
+	} else {
+		total, err = h.eventStore.GetTotal(nil)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, fmt.Errorf("failed to get total events: %w", err))
+			return
+		}
 	}
 
 	response := &models.PaginatedEvents{
@@ -56,9 +72,7 @@ func (h *Handlers) GetEventsPaginated(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.cache != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 100*time.Millisecond)
-		defer cancel()
-		h.cache.Set(ctx, cache.EventsKey(params.Page, params.Limit), response, cache.TTLEvents)
+		h.cache.Set(context.Background(), cache.EventsKey(params.Page, params.Limit), response, cache.TTLEvents)
 	}
 
 	respondWithJson(w, http.StatusOK, response)
@@ -120,9 +134,7 @@ func (h *Handlers) GetUserEventsPaginated(w http.ResponseWriter, r *http.Request
 	}
 
 	if h.cache != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 100*time.Millisecond)
-		defer cancel()
-		h.cache.Set(ctx, cache.UserEventsKey(userID, params.Page, params.Limit), response, cache.TTLUserEvents)
+		h.cache.Set(context.Background(), cache.UserEventsKey(userID, params.Page, params.Limit), response, cache.TTLUserEvents)
 	}
 
 	respondWithJson(w, http.StatusOK, response)
@@ -180,6 +192,7 @@ func (h *Handlers) createEventAsync(w http.ResponseWriter, r *http.Request, inpu
 	if h.cache != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 50*time.Millisecond)
 		defer cancel()
+		h.cache.InvalidateAllEvents(ctx)
 		h.cache.InvalidateUserEvents(ctx, inputEvent.UserID)
 		h.cache.InvalidateStats(ctx)
 	}
@@ -231,6 +244,7 @@ func (h *Handlers) insertEventSyncAndRespond(w http.ResponseWriter, inputEvent m
 	if h.cache != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
+		h.cache.InvalidateAllEvents(ctx)
 		h.cache.InvalidateUserEvents(ctx, inputEvent.UserID)
 		h.cache.InvalidateStats(ctx)
 	}
@@ -260,6 +274,7 @@ func (h *Handlers) createEventSync(w http.ResponseWriter, r *http.Request, input
 
 	if h.cache != nil {
 		ctx := context.Background()
+		h.cache.InvalidateAllEvents(ctx)
 		h.cache.InvalidateUserEvents(ctx, inputEvent.UserID)
 		h.cache.InvalidateStats(ctx)
 	}

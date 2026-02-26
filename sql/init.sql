@@ -25,10 +25,7 @@ create table events (
         on delete no action
 );
 
-create index idx_events_user_timestamp on events (user_id, "timestamp" desc);
 create index idx_events_timestamp_desc on events ("timestamp" desc);
 create index idx_events_type_timestamp on events (type_id, "timestamp" desc);
 create index idx_events_stats on events (user_id, (metadata->>'page'), type_id);
 create index idx_events_covering on events (user_id, type_id, "timestamp" desc) include (event_id, metadata);
-create index idx_events_covering_global on events (event_id DESC) include (user_id, type_id, timestamp, metadata);
-create index idx_events_metadata_gin on events using gin (metadata);

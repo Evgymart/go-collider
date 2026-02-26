@@ -135,12 +135,10 @@ var eventTypes = map[string]struct {
 }
 
 var indexes = []string{
-	"idx_events_user_timestamp",
 	"idx_events_timestamp_desc",
 	"idx_events_type_timestamp",
 	"idx_events_stats",
 	"idx_events_covering",
-	"idx_events_metadata_gin",
 }
 
 type seedPool struct {
@@ -386,12 +384,10 @@ func recreateIndexes(db *sqlx.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events (user_id, timestamp desc)", pq.QuoteIdentifier("idx_events_user_timestamp")))
 	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events (timestamp desc)", pq.QuoteIdentifier("idx_events_timestamp_desc")))
 	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events (type_id, timestamp desc)", pq.QuoteIdentifier("idx_events_type_timestamp")))
 	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events (user_id, (metadata->>'page'), type_id)", pq.QuoteIdentifier("idx_events_stats")))
 	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events (user_id, type_id, timestamp desc) include (event_id, metadata)", pq.QuoteIdentifier("idx_events_covering")))
-	db.MustExecContext(ctx, fmt.Sprintf("create index concurrently if not exists %s on events using gin (metadata)", pq.QuoteIdentifier("idx_events_metadata_gin")))
 }
 
 func formatBytes(b uint64) string {

@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: docker/go/Dockerfile
+      args:
+        - APP_ENV=${APP_ENV}
     container_name: collider-app
     restart: unless-stopped
     ports:
@@ -26,6 +28,8 @@ services:
       context: .
       dockerfile: docker/go/Dockerfile
       target: builder
+      args:
+        - APP_ENV=${APP_ENV}
     container_name: collider-test
     volumes:
       - ./:/app
@@ -34,6 +38,30 @@ services:
     env_file:
       - .env
     command: go test ./test/cases... -v
+  debug:
+    build:
+      context: .
+      dockerfile: docker/go/Dockerfile
+      target: debug
+      args:
+        - APP_ENV=development
+    container_name: collider-debug
+    ports:
+      - "2345:2345"
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SERVER_PORT=${SERVER_PORT}
+      - CACHE_URL=${CACHE_URL:-dragonfly:6379}
+    security_opt:
+      - "seccomp:unconfined"
+    cap_add:
+      - SYS_PTRACE
+    depends_on:
+      - db
+      - dragonfly
   db:
     image: postgres:${POSTGRES_VERSION:-18}-alpine
     container_name: collider-db

@@ -26,6 +26,24 @@ build: ## Build the binary
 	go build -o collider ./cmd/api/main.go
 .PHONY: build
 
+build-debug: ## Build binary with debug symbols
+	APP_ENV=development docker-compose build app
+.PHONY: build-debug
+
+debug: ## Start debug container with Delve (connect GoLand to localhost:2345)
+	docker-compose up -d debug db dragonfly
+	@echo "Debug server running on port 2345"
+	@echo "Connect with GoLand Remote Debug (localhost:2345)"
+.PHONY: debug
+
+debug-logs: ## Show debug container logs
+	docker-compose logs -f debug
+.PHONY: debug-logs
+
+debug-down: ## Stop debug container
+	docker-compose stop debug && docker-compose rm -f debug
+.PHONY: debug-down
+
 test: ## Run tests in Docker
 	docker-compose run --rm test go test ./test/cases/...
 .PHONY: test

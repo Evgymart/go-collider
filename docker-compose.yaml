@@ -48,7 +48,7 @@ services:
     container_name: collider-debug
     ports:
       - "2345:2345"
-      - "8080:8080"
+      - "8081:8080"
     env_file:
       - .env
     environment:

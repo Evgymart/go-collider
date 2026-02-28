@@ -6,6 +6,7 @@ import (
 	"collider/internal/stores"
 
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 )
@@ -14,6 +15,10 @@ import (
 type StatsRepository interface {
 	// GetStats retrieves statistics with caching support.
 	GetStats(ctx context.Context, data models.GetStatsData) (*models.Stats, error)
+
+	// GetStatsRaw returns cached JSON bytes if available, with a bool indicating cache hit.
+	// Use this to avoid marshal/unmarshal overhead when serving from cache.
+	GetStatsRaw(ctx context.Context, data models.GetStatsData) ([]byte, bool)
 
 	// GetEventTypeId gets an event type ID by name (used for validation).
 	GetEventTypeId(eventType string) (*int64, error)
@@ -35,14 +40,27 @@ func NewStatsRepository(store *stores.StatsStore, eventStore *stores.EventStore,
 	}
 }
 
+func (r *CachedStatsRepository) GetStatsRaw(ctx context.Context, data models.GetStatsData) ([]byte, bool) {
+	if r.cache == nil {
+		return nil, false
+	}
+	cacheKey := cache.StatsKey(data.From, data.To, data.TypeID)
+	if cachedBytes, ok := r.cache.GetBytes(ctx, cacheKey); ok {
+		log.Printf("cache hit (raw): %s", cacheKey)
+		return cachedBytes, true
+	}
+	return nil, false
+}
+
 func (r *CachedStatsRepository) GetStats(ctx context.Context, data models.GetStatsData) (*models.Stats, error) {
 	if r.cache != nil {
 		cacheKey := cache.StatsKey(data.From, data.To, data.TypeID)
-		var cachedStats models.Stats
-
-		if r.cache.Get(ctx, cacheKey, &cachedStats) {
+		if cachedBytes, ok := r.cache.GetBytes(ctx, cacheKey); ok {
 			log.Printf("cache hit: %s", cacheKey)
-			return &cachedStats, nil
+			var cachedStats models.Stats
+			if err := json.Unmarshal(cachedBytes, &cachedStats); err == nil {
+				return &cachedStats, nil
+			}
 		}
 	}
 

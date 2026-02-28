@@ -37,12 +37,20 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	stats, err := h.statsRepository.GetStats(r.Context(), models.GetStatsData{
+	data := models.GetStatsData{
 		TypeID: eventTypeId,
 		From:   fromTime,
 		To:     toTime,
-	})
+	}
 
+	if cachedBytes, hit := h.statsRepository.GetStatsRaw(r.Context(), data); hit {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(cachedBytes)
+		return
+	}
+
+	stats, err := h.statsRepository.GetStats(r.Context(), data)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err)
 		return

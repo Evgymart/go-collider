@@ -35,7 +35,7 @@ func (s *EventStore) GenerateEventID() (int64, error) {
 	return s.snowflake.Generate()
 }
 
-func (s EventStore) GetPaginated(page uint, limit uint, UserID *int64) ([]models.Event, error) {
+func (s *EventStore) GetPaginated(page uint, limit uint, UserID *int64) ([]models.Event, error) {
 	offset := (page - 1) * limit
 	var events []models.Event
 
@@ -76,20 +76,14 @@ func (s EventStore) GetPaginated(page uint, limit uint, UserID *int64) ([]models
 }
 
 // GetTotal returns the total count of events.
-// For global counts (no user filter), we use PostgreSQL's estimated row count
-// from pg_class.reltuples which is much faster than COUNT(*) on large tables.
-// For user-specific counts, we still need an accurate count since we can't estimate per-user.
-func (s EventStore) GetTotal(UserID *int64) (int, error) {
+func (s *EventStore) GetTotal(UserID *int64) (int, error) {
 	var query string
 	var args []interface{}
 
 	if UserID == nil {
-		// Use estimated row count from pg_class for global events count
-		// This is an estimate but avoids expensive full table scans on large tables
-		query = `select coalesce(reltuples::bigint, 0) from pg_class where relname = 'events'`
+		query = `select count(*) from events`
 		args = []interface{}{}
 	} else {
-		// For user-specific counts, we need an accurate count since we can't estimate per-user
 		query = `select count(*) from events where user_id = $1`
 		args = []interface{}{*UserID}
 	}

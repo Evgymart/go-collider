@@ -1,27 +1,24 @@
 package handlers
 
 import (
-	"collider/internal/cache"
 	"collider/internal/queue"
-	"collider/internal/stores"
+	"collider/internal/repositories"
 
 	"encoding/json"
 	"net/http"
 )
 
 type Handlers struct {
-	eventStore *stores.EventStore
-	statsStore *stores.StatsStore
-	cache      *cache.Cache
-	eventQueue *queue.EventQueue
+	eventRepository repositories.EventRepository
+	statsRepository repositories.StatsRepository
+	eventQueue      *queue.EventQueue
 }
 
-func NewHandlers(e *stores.EventStore, s *stores.StatsStore, c *cache.Cache) *Handlers {
+func NewHandlers(e repositories.EventRepository, s repositories.StatsRepository) *Handlers {
 	return &Handlers{
-		eventStore: e,
-		statsStore: s,
-		cache:      c,
-		eventQueue: nil, // Will be set after queue is created
+		eventRepository: e,
+		statsRepository: s,
+		eventQueue:      nil, // Will be set after queue is created
 	}
 }
 

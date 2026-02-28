@@ -6,6 +6,7 @@ import (
 	"collider/internal/handlers"
 	"collider/internal/middleware"
 	"collider/internal/queue"
+	"collider/internal/repositories"
 	"collider/internal/router"
 	"collider/internal/stores"
 
@@ -64,6 +65,10 @@ func main() {
 		log.Println("cache: disabled (no CACHE_URL set)")
 	}
 
+	// Create repositories
+	eventRepository := repositories.NewEventRepository(eventStore, c)
+	statsRepository := repositories.NewStatsRepository(statsStore, eventStore, c)
+
 	queueConfig := queue.DefaultConfig()
 	eventQueue, err := queue.NewEventQueue(eventStore, queueConfig)
 	if err != nil {
@@ -86,7 +91,7 @@ func main() {
 		}
 	}()
 
-	h := handlers.NewHandlers(eventStore, statsStore, c)
+	h := handlers.NewHandlers(eventRepository, statsRepository)
 	h.SetEventQueue(eventQueue)
 
 	mux := router.New(h)

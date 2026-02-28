@@ -1,7 +1,9 @@
 package main
 
 import (
+	"collider/internal/cache"
 	"collider/internal/stores"
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -32,5 +34,30 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Invalidate caches
+	invalidateCaches()
+
 	fmt.Printf("Truncated in %.2f seconds\n", time.Since(start).Seconds())
+}
+
+func invalidateCaches() {
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "dragonfly:6379"
+	}
+
+	c := cache.NewFromURL(redisURL, 10)
+	if c == nil {
+		return
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Invalidate all caches
+	c.InvalidateEvents(ctx)
+	c.InvalidateStats(ctx)
+
+	log.Println("Cache invalidated")
 }

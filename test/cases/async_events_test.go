@@ -14,6 +14,7 @@ import (
 	"collider/internal/handlers"
 	"collider/internal/models"
 	"collider/internal/queue"
+	"collider/internal/repositories"
 	"collider/internal/stores"
 	"collider/test/utils"
 
@@ -48,7 +49,9 @@ func setupAsyncHandlers(t *testing.T) (*sqlx.DB, *handlers.Handlers, *queue.Even
 		t.Fatalf("failed to start event queue: %v", err)
 	}
 
-	h := handlers.NewHandlers(eventStore, statsStore, nil)
+	eventRepository := repositories.NewEventRepository(eventStore, nil)
+	statsRepository := repositories.NewStatsRepository(statsStore, eventStore, nil)
+	h := handlers.NewHandlers(eventRepository, statsRepository)
 	h.SetEventQueue(eventQueue)
 
 	t.Cleanup(func() {
@@ -462,7 +465,9 @@ func TestAsyncPersistence(t *testing.T) {
 			t.Fatalf("failed to start first queue: %v", err)
 		}
 
-		h1 := handlers.NewHandlers(eventStore, statsStore, nil)
+		eventRepository1 := repositories.NewEventRepository(eventStore, nil)
+		statsRepository1 := repositories.NewStatsRepository(statsStore, eventStore, nil)
+		h1 := handlers.NewHandlers(eventRepository1, statsRepository1)
 		h1.SetEventQueue(eventQueue1)
 
 		// Create events (these will be persisted but not flushed)
@@ -522,7 +527,9 @@ func TestAsyncPersistence(t *testing.T) {
 			t.Fatalf("failed to start second queue: %v", err)
 		}
 
-		h2 := handlers.NewHandlers(eventStore, statsStore, nil)
+		eventRepository2 := repositories.NewEventRepository(eventStore, nil)
+		statsRepository2 := repositories.NewStatsRepository(statsStore, eventStore, nil)
+		h2 := handlers.NewHandlers(eventRepository2, statsRepository2)
 		h2.SetEventQueue(eventQueue2)
 
 		// Wait for recovery and flush to complete
@@ -575,7 +582,9 @@ func TestAsyncGracefulShutdown(t *testing.T) {
 			t.Fatalf("failed to start queue: %v", err)
 		}
 
-		h := handlers.NewHandlers(eventStore, statsStore, nil)
+		eventRepo := repositories.NewEventRepository(eventStore, nil)
+		statsRepo := repositories.NewStatsRepository(statsStore, eventStore, nil)
+		h := handlers.NewHandlers(eventRepo, statsRepo)
 		h.SetEventQueue(eventQueue)
 
 		// Create events

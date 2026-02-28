@@ -13,35 +13,21 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// TTL constants define cache expiration durations.
-// Shorter TTLs for frequently changing data (events), longer for aggregates (stats).
 const (
 	// TTLEvents is the cache duration for paginated event lists.
-	// 5 minutes balances freshness with reduced database load.
 	TTLEvents = 5 * time.Minute
 
-	// TTLUserEvents is the cache duration for user-specific event lists.
-	// Same as events since new user events invalidate their cache.
-	TTLUserEvents = 5 * time.Minute
-
 	// TTLStats is the cache duration for analytics stats.
-	// 15 minutes is appropriate for aggregate data that changes less frequently.
 	TTLStats = 15 * time.Minute
 
 	// TTLEventTypeId is the cache duration for event type ID lookups.
-	// These rarely change, so a longer TTL is appropriate.
 	TTLEventTypeId = 30 * time.Minute
-
-	// TTLEventsTotal is the cache duration for the total events count.
-	// 15 minutes is appropriate since the count changes less frequently than individual events.
-	TTLEventsTotal = 15 * time.Minute
 )
 
 // keyPrefixes define namespace prefixes for different cache entry types.
 // Namespacing prevents key collisions and enables pattern-based invalidation.
 const (
 	keyPrefixEvents      = "events"
-	keyPrefixUserEvents  = "user_events"
 	keyPrefixStats       = "stats"
 	keyPrefixEventTypeId = "event_type_id"
 )
@@ -121,11 +107,7 @@ func (c *Cache) Close() error {
 }
 
 // Get retrieves and deserializes a value into dest.
-// Redis GET operations are already atomic and fast, so we don't use singleflight here.
-// Singleflight would serialize all requests with the same cache key, creating a bottleneck.
 // Returns true if the value was found and successfully deserialized.
-// Returns false on cache miss, deserialization error, or connection failure.
-// On deserialization error, the corrupt key is deleted from the cache.
 func (c *Cache) Get(ctx context.Context, key string, dest interface{}) bool {
 	if c.client == nil {
 		c.stats.mu.Lock()
@@ -169,8 +151,6 @@ func (c *Cache) Get(ctx context.Context, key string, dest interface{}) bool {
 }
 
 // Set serializes and stores a value with the specified TTL.
-// Uses background context to ensure the operation completes even if the request context is canceled.
-// Errors are logged but do not affect program flow.
 func (c *Cache) Set(_ context.Context, key string, value interface{}, ttl time.Duration) {
 	if c.client == nil {
 		return
@@ -194,8 +174,6 @@ func (c *Cache) Set(_ context.Context, key string, value interface{}, ttl time.D
 }
 
 // Delete removes a key from the cache.
-// Uses background context to ensure the operation completes.
-// Errors are logged but do not affect program flow.
 func (c *Cache) Delete(_ context.Context, key string) {
 	if c.client == nil {
 		return
@@ -212,9 +190,6 @@ func (c *Cache) Delete(_ context.Context, key string) {
 }
 
 // DeleteByPattern removes all keys matching the given pattern.
-// Uses SCAN for production safety (avoiding blocking KEYS command).
-// Uses background context to ensure the operation completes.
-// Errors are logged but do not affect program flow.
 func (c *Cache) DeleteByPattern(_ context.Context, pattern string) {
 	if c.client == nil {
 		return
@@ -259,21 +234,13 @@ func (c *Cache) DeleteByPattern(_ context.Context, pattern string) {
 }
 
 // EventsKey builds a cache key for paginated events lists.
-// Format: "events:page:{page}:limit:{limit}"
-func EventsKey(page, limit uint) string {
-	return fmt.Sprintf("%s:page:%d:limit:%d", keyPrefixEvents, page, limit)
-}
-
-// EventsTotalKey builds a cache key for the total events count.
-// Format: "events:total"
-func EventsTotalKey() string {
-	return keyPrefixEvents + ":total"
-}
-
-// UserEventsKey builds a cache key for user-specific paginated events lists.
-// Format: "user_events:{user_id}:page:{page}:limit:{limit}"
-func UserEventsKey(userID int64, page, limit uint) string {
-	return fmt.Sprintf("%s:%d:page:%d:limit:%d", keyPrefixUserEvents, userID, page, limit)
+// Handles both global events (userID=nil) and user-specific events.
+// Format: "events:page:{page}:limit:{limit}:user:{user_id|all}"
+func EventsKey(page, limit uint, userID *int64) string {
+	if userID == nil {
+		return fmt.Sprintf("%s:page:%d:limit:%d:user:all", keyPrefixEvents, page, limit)
+	}
+	return fmt.Sprintf("%s:page:%d:limit:%d:user:%d", keyPrefixEvents, page, limit, *userID)
 }
 
 // StatsKey builds a cache key for stats queries.
@@ -304,18 +271,10 @@ func EventTypeIdKey(name string) string {
 	return fmt.Sprintf("%s:%s", keyPrefixEventTypeId, name)
 }
 
-// InvalidateUserEvents removes all cached event lists for a specific user.
-// Called when a new event is created for that user.
-func (c *Cache) InvalidateUserEvents(ctx context.Context, userID int64) {
-	pattern := fmt.Sprintf("%s:%d:*", keyPrefixUserEvents, userID)
-	c.DeleteByPattern(ctx, pattern)
-}
-
-// InvalidateAllEvents removes all cached event lists (both global and user-specific).
+// InvalidateEvents removes all cached event lists (both global and user-specific).
 // Called when any event is created, as it affects pagination.
-func (c *Cache) InvalidateAllEvents(ctx context.Context) {
+func (c *Cache) InvalidateEvents(ctx context.Context) {
 	c.DeleteByPattern(ctx, keyPrefixEvents+":*")
-	c.DeleteByPattern(ctx, keyPrefixUserEvents+":*")
 }
 
 // InvalidateStats removes all cached stats.

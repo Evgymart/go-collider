@@ -10,6 +10,7 @@ import (
 
 	"collider/internal/handlers"
 	"collider/internal/models"
+	"collider/internal/repositories"
 	"collider/internal/stores"
 	"collider/test/utils"
 
@@ -21,7 +22,9 @@ func setupHandlers(t *testing.T) (*sqlx.DB, *handlers.Handlers) {
 	db := utils.SetupTestDB(t)
 	eventStore := stores.NewEventStore(db, 1)
 	statsStore := stores.NewStatsStore(db)
-	h := handlers.NewHandlers(eventStore, statsStore, nil)
+	eventRepository := repositories.NewEventRepository(eventStore, nil)
+	statsRepository := repositories.NewStatsRepository(statsStore, eventStore, nil)
+	h := handlers.NewHandlers(eventRepository, statsRepository)
 	return db, h
 }
 

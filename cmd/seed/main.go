@@ -8,12 +8,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"collider/internal/cache"
 	"collider/internal/config"
 	"collider/internal/snowflake"
 	"collider/internal/stores"
@@ -218,6 +220,7 @@ func main() {
 	seedEventTypes(db)
 	seedEvents(db, totalEvents)
 	recreateIndexes(db)
+	invalidateCaches(cfg)
 
 	elapsed := time.Since(startTime)
 
@@ -401,4 +404,26 @@ func formatBytes(b uint64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func invalidateCaches(cfg *config.Config) {
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "dragonfly:6379"
+	}
+
+	c := cache.NewFromURL(redisURL, 10)
+	if c == nil {
+		return
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Invalidate all caches
+	c.InvalidateEvents(ctx)
+	c.InvalidateStats(ctx)
+
+	log.Println("Cache invalidated")
 }

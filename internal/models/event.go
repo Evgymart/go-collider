@@ -30,3 +30,19 @@ type CreateEventInput struct {
 type EventData struct {
 	Data Event `json:"data"`
 }
+
+// CachedPaginatedEvents represents a paginated events response that may be
+// served from cache as raw JSON bytes. This enables pass-through caching
+// to avoid double JSON serialization (unmarshal from cache + marshal for response).
+type CachedPaginatedEvents struct {
+	// RawJSON contains pre-serialized JSON from cache. If set, Data should not be used.
+	RawJSON []byte
+
+	// Data contains the deserialized PaginatedEvents. If RawJSON is set, this is nil.
+	Data *PaginatedEvents
+}
+
+// IsCached returns true if the response contains cached raw JSON bytes.
+func (c *CachedPaginatedEvents) IsCached() bool {
+	return len(c.RawJSON) > 0
+}

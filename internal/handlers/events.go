@@ -21,13 +21,19 @@ func (h *Handlers) GetEventsPaginated(w http.ResponseWriter, r *http.Request) {
 	params := pagination.ParseFromRequest(r)
 	ctx := r.Context()
 
-	response, err := h.eventRepository.GetPaginated(ctx, params.Page, params.Limit, nil)
+	response, err := h.eventRepository.GetPaginatedCached(ctx, params.Page, params.Limit, nil)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	respondWithJson(w, http.StatusOK, response)
+	// Use pass-through caching if we have raw JSON bytes
+	if response.IsCached() {
+		respondWithJsonBytes(w, http.StatusOK, response.RawJSON)
+		return
+	}
+
+	respondWithJson(w, http.StatusOK, response.Data)
 }
 
 func (h *Handlers) GetUserEventsPaginated(w http.ResponseWriter, r *http.Request) {
@@ -53,13 +59,19 @@ func (h *Handlers) GetUserEventsPaginated(w http.ResponseWriter, r *http.Request
 	}
 
 	ctx := r.Context()
-	response, err := h.eventRepository.GetPaginated(ctx, params.Page, params.Limit, &userID)
+	response, err := h.eventRepository.GetPaginatedCached(ctx, params.Page, params.Limit, &userID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	respondWithJson(w, http.StatusOK, response)
+	// Use pass-through caching if we have raw JSON bytes
+	if response.IsCached() {
+		respondWithJsonBytes(w, http.StatusOK, response.RawJSON)
+		return
+	}
+
+	respondWithJson(w, http.StatusOK, response.Data)
 }
 
 func (h *Handlers) CreateEvent(w http.ResponseWriter, r *http.Request) {

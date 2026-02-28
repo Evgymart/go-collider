@@ -7,10 +7,14 @@ import (
 	"collider/internal/cache"
 	"collider/internal/models"
 	"collider/internal/stores"
+	"log"
+	"sync"
 
 	"context"
 	"fmt"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const cacheInvalidationTimeout = 50 * time.Millisecond
@@ -19,6 +23,10 @@ const cacheInvalidationTimeout = 50 * time.Millisecond
 type EventRepository interface {
 	// GetPaginated retrieves paginated events with caching support.
 	GetPaginated(ctx context.Context, page, limit uint, userID *int64) (*models.PaginatedEvents, error)
+
+	// GetPaginatedCached retrieves paginated events with pass-through caching support.
+	// Returns raw JSON bytes when available from cache, avoiding double serialization.
+	GetPaginatedCached(ctx context.Context, page, limit uint, userID *int64) (*models.CachedPaginatedEvents, error)
 
 	// CreateEvent creates a new event and invalidates relevant caches.
 	CreateEvent(ctx context.Context, input models.CreateEventInput) (*models.EventData, error)
@@ -44,8 +52,10 @@ type EventRepository interface {
 
 // CachedEventRepository implements EventRepository with caching support.
 type CachedEventRepository struct {
-	store *stores.EventStore
-	cache *cache.Cache
+	store   *stores.EventStore
+	cache   *cache.Cache
+	sfGroup singleflight.Group
+	mu      sync.Mutex
 }
 
 // NewEventRepository creates a new EventRepository. If cache is nil, caching is disabled.
@@ -63,34 +73,53 @@ func (r *CachedEventRepository) GetPaginated(ctx context.Context, page, limit ui
 	if r.cache != nil {
 		var cachedResponse models.PaginatedEvents
 		if r.cache.Get(ctx, cacheKey, &cachedResponse) {
+			log.Printf("Cache hit!!!: %s", cacheKey)
 			return &cachedResponse, nil
 		}
 	}
 
-	// Cache miss - get from store
-	events, err := r.store.GetPaginated(page, limit, userID)
+	// Use singleflight to prevent cache stampede - only one goroutine fetches from DB
+	result, err, _ := r.sfGroup.Do(cacheKey, func() (interface{}, error) {
+		// Double-check cache in case another goroutine populated it while we waited
+		if r.cache != nil {
+			var cachedResponse models.PaginatedEvents
+			if r.cache.Get(ctx, cacheKey, &cachedResponse) {
+				log.Printf("Cache hit (after singleflight wait)!!!: %s", cacheKey)
+				return &cachedResponse, nil
+			}
+		}
+
+		// Cache miss - get from store
+		events, err := r.store.GetPaginated(page, limit, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get paginated events: %w", err)
+		}
+
+		total, err := r.store.GetTotal(userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get total events: %w", err)
+		}
+
+		response := &models.PaginatedEvents{
+			Data:  events,
+			Limit: limit,
+			Page:  page,
+			Total: uint(total),
+		}
+
+		// Cache the entire response
+		if r.cache != nil {
+			r.cache.Set(context.Background(), cacheKey, response, cache.TTLEvents)
+		}
+
+		return response, nil
+	})
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to get paginated events: %w", err)
+		return nil, err
 	}
 
-	total, err := r.store.GetTotal(userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get total events: %w", err)
-	}
-
-	response := &models.PaginatedEvents{
-		Data:  events,
-		Limit: limit,
-		Page:  page,
-		Total: uint(total),
-	}
-
-	// Cache the entire response
-	if r.cache != nil {
-		r.cache.Set(context.Background(), cacheKey, response, cache.TTLEvents)
-	}
-
-	return response, nil
+	return result.(*models.PaginatedEvents), nil
 }
 
 func (r *CachedEventRepository) CreateEvent(ctx context.Context, input models.CreateEventInput) (*models.EventData, error) {
@@ -172,4 +201,60 @@ func (r *CachedEventRepository) invalidateCaches(ctx context.Context) {
 
 func (r *CachedEventRepository) InvalidateCaches(ctx context.Context) {
 	r.invalidateCaches(ctx)
+}
+
+// GetPaginatedCached retrieves paginated events with pass-through caching support.
+// Returns raw JSON bytes when available from cache, avoiding double serialization.
+func (r *CachedEventRepository) GetPaginatedCached(ctx context.Context, page, limit uint, userID *int64) (*models.CachedPaginatedEvents, error) {
+	cacheKey := cache.EventsKey(page, limit, userID)
+
+	// Try cache first for raw bytes (pass-through)
+	if r.cache != nil {
+		if data, hit := r.cache.GetBytes(ctx, cacheKey); hit {
+			log.Printf("Cache HIT (bytes)!!!: %s", cacheKey)
+			return &models.CachedPaginatedEvents{RawJSON: data}, nil
+		}
+	}
+
+	// Use singleflight to prevent cache stampede - only one goroutine fetches from DB
+	result, err, _ := r.sfGroup.Do(cacheKey, func() (interface{}, error) {
+		// Double-check cache in case another goroutine populated it while we waited
+		if r.cache != nil {
+			if data, hit := r.cache.GetBytes(ctx, cacheKey); hit {
+				log.Printf("Cache HIT (bytes, after singleflight wait)!!!: %s", cacheKey)
+				return &models.CachedPaginatedEvents{RawJSON: data}, nil
+			}
+		}
+
+		// Cache miss - get from store
+		events, err := r.store.GetPaginated(page, limit, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get paginated events: %w", err)
+		}
+
+		total, err := r.store.GetTotal(userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get total events: %w", err)
+		}
+
+		response := &models.PaginatedEvents{
+			Data:  events,
+			Limit: limit,
+			Page:  page,
+			Total: uint(total),
+		}
+
+		// Cache the entire response (will be JSON serialized)
+		if r.cache != nil {
+			r.cache.Set(context.Background(), cacheKey, response, cache.TTLEvents)
+		}
+
+		return &models.CachedPaginatedEvents{Data: response}, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return result.(*models.CachedPaginatedEvents), nil
 }

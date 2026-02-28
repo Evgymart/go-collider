@@ -15,7 +15,7 @@ import (
 
 const (
 	// TTLEvents is the cache duration for paginated event lists.
-	TTLEvents = 5 * time.Minute
+	TTLEvents = 10 * time.Minute
 
 	// TTLStats is the cache duration for analytics stats.
 	TTLStats = 15 * time.Minute
@@ -148,6 +148,38 @@ func (c *Cache) Get(ctx context.Context, key string, dest interface{}) bool {
 	c.stats.hits++
 	c.stats.mu.Unlock()
 	return true
+}
+
+// GetBytes retrieves raw JSON bytes without unmarshaling.
+// Returns true if the value was found. This is useful for pass-through
+// caching where cached data can be written directly to the response.
+func (c *Cache) GetBytes(ctx context.Context, key string) ([]byte, bool) {
+	if c.client == nil {
+		c.stats.mu.Lock()
+		c.stats.misses++
+		c.stats.mu.Unlock()
+		return nil, false
+	}
+
+	data, err := c.client.Get(ctx, key).Bytes()
+	if err != nil {
+		if err == redis.Nil {
+			c.stats.mu.Lock()
+			c.stats.misses++
+			c.stats.mu.Unlock()
+			return nil, false
+		}
+		c.stats.mu.Lock()
+		c.stats.errors++
+		c.stats.mu.Unlock()
+		log.Printf("cache: get error for key %s: %v", key, err)
+		return nil, false
+	}
+
+	c.stats.mu.Lock()
+	c.stats.hits++
+	c.stats.mu.Unlock()
+	return data, true
 }
 
 // Set serializes and stores a value with the specified TTL.
